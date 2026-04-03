@@ -1,4 +1,4 @@
-/ output_scan.v
+// output_scan.v
 // Serialises four 16-bit accumulator values into a 1-bit output stream.
 // When load_parallel=1, captures the 4 accumulators.
 // Then shifts out 64 bits MSB-first, one bit per clock.
@@ -18,7 +18,6 @@ else if (load_parallel)
 // Pack all 4 results into one 64-bit shift register
 // accum0 in bits [63:48], accum1 in [47:32], etc.
 shift_reg <= {accum0, accum1, accum2, accum3};
-NeurAcc — MAC Accelerator Guide | Page 14
 else if (shift)
 // Shift left: MSB goes out, zeros fill from right
 shift_reg <= {shift_reg[62:0], 1'b0};

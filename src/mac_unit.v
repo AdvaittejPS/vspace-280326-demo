@@ -34,6 +34,5 @@ accum <= accum + product;
 end
 end
 assign accum_out = accum;
-NeurAcc — MAC Accelerator Guide | Page 12
 assign weight_out = weight;
 endmodule

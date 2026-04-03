@@ -33,7 +33,6 @@ mac_unit u1 (
 );
 // Unit 2: receives weight bits from unit 1's MSB
 mac_unit u2 (
-NeurAcc — MAC Accelerator Guide | Page 13
 .clk(clk), .rst_n(rst_n),
 .load_w_bit(load_w_bit), .w_bit_in(w_out1[7]),
 .compute(compute), .clear(clear),
