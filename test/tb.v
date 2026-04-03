@@ -44,6 +44,7 @@ module tb;
     ui_in = 8'b00000010;   // set load_weights bit high
     @(posedge clk);
     ui_in = 8'b00000000;
+    @(posedge clk);  
 
     // Send 32 bits MSB-first into serial_in (ui_in[0])
     for (bit_idx = 31; bit_idx >= 0; bit_idx = bit_idx - 1) begin
@@ -51,7 +52,7 @@ module tb;
       @(posedge clk);
     end
     ui_in = 0;
-    wait_cycles(2);
+    wait_cycles(3);
 
     // STEP 2: Compute 3 MAC steps with inputs 10, 20, 30
     $display("Computing with inputs: 10, 20, 30");
