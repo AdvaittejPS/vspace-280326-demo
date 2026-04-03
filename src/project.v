@@ -3,14 +3,16 @@
 // Implements a 4-element weight-stationary systolic MAC array.
 //
 // Pin mapping:
-// ui_in[7:0] = data_in (8-bit input for compute mode)
-// ui_in[0] = serial_in (weight bit in load mode)
-// ui_in[1] = load_weights (start loading weights)
-// ui_in[2] = compute (do one MAC step)
-// ui_in[3] = read_out (start reading results)
-// ui_in[4] = clear_accum (reset accumulators)
-// uo_out[0] = serial_out (result bit out)
-// uo_out[1] = ready
+// ui_in[0]   = serial_in   (weight bit in load mode)
+// ui_in[1]   = load_weights (start loading weights)
+// ui_in[2]   = compute      (do one MAC step)
+// ui_in[3]   = read_out    (start reading results)
+// ui_in[4]   = clear_accum (reset accumulators)
+// uio_in[7:0] = data_in    (8-bit input for MAC compute steps)
+// uo_out[0]  = serial_out  (result bit out)
+// uo_out[1]  = ready
+
+`timescale 1ns/1ps
 
 module tt_um_neuracc (
   input  wire [7:0] ui_in,
@@ -26,13 +28,17 @@ module tt_um_neuracc (
   assign uio_out = 8'b0;
   assign uio_oe  = 8'b0;
 
-  // Pin aliases
+  // Pin aliases — control bits on ui_in, data on uio_in
   wire       serial_in    = ui_in[0];
   wire       load_weights = ui_in[1];
   wire       compute      = ui_in[2];
   wire       read_out     = ui_in[3];
   wire       clear_accum  = ui_in[4];
-  wire [7:0] data_in      = ui_in;
+
+  // Data input comes from uio_in, completely separate from control bits.
+  // This avoids the conflict where data values (e.g. 10 = 8'b00001010)
+  // accidentally assert control signals like load_weights (bit 1).
+  wire [7:0] data_in = uio_in;
 
   // FSM states
   localparam IDLE     = 2'd0;
@@ -42,7 +48,7 @@ module tt_um_neuracc (
   reg [1:0] state;
   reg [5:0] bit_cnt;
 
-  // Control signals — combinational, no one-cycle delay
+  // Control signals — registered to avoid combinational glitches
   reg load_w_bit_r;
   reg load_parallel_r;
   reg do_shift_r;

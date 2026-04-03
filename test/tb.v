@@ -1,87 +1,113 @@
 `timescale 1ns/1ps
 module tb;
 
-  reg clk = 0, rst_n = 0;
-  reg [7:0] ui_in = 0;
+  reg clk;
+  reg rst_n;
+  reg [7:0] ui_in;   // control signals only: [4]=clear,[3]=read_out,[2]=compute,[1]=load_weights,[0]=serial_in
+  reg [7:0] uio_in;  // data input for MAC compute steps
   wire [7:0] uo_out;
   wire [7:0] uio_out, uio_oe;
+
+  initial begin
+    clk    = 0;
+    rst_n  = 0;
+    ui_in  = 0;
+    uio_in = 0;
+  end
+
+  always #5 clk = ~clk;
 
   tt_um_neuracc dut (
     .clk(clk), .rst_n(rst_n),
     .ui_in(ui_in), .uo_out(uo_out),
-    .uio_in(8'b0), .uio_out(uio_out),
+    .uio_in(uio_in), .uio_out(uio_out),
     .uio_oe(uio_oe), .ena(1'b1)
   );
-
-  always #5 clk = ~clk;
 
   task wait_cycles(input integer n);
     integer i;
     for (i = 0; i < n; i = i + 1) @(posedge clk);
   endtask
 
-  // Declarations at module level — not inside blocks
-  integer i, bit_idx;
+  integer bit_idx;
   reg [31:0] weight_bits;
   reg [63:0] result_bits;
   reg [15:0] accum0, accum1, accum2, accum3;
-  integer input_vals [0:2];   // array at module level
 
   initial begin
     $dumpfile("dump.vcd");
     $dumpvars(0, tb);
 
     // Reset
-    rst_n = 0; ui_in = 0;
+    @(posedge clk);
+    rst_n = 0;
     wait_cycles(3);
     rst_n = 1;
     wait_cycles(2);
 
+    // -------------------------------------------------------
     // STEP 1: Load weights [1, 2, 3, 4]
-    weight_bits = {8'd1, 8'd2, 8'd3, 8'd4};
+    // Send MSB-first: {w3=4, w2=3, w1=2, w0=1} so that after
+    // 32 serial shifts, unit0 holds weight=1, unit1=2, unit2=3, unit3=4.
+    // -------------------------------------------------------
+    weight_bits = {8'd4, 8'd3, 8'd2, 8'd1};
     $display("Loading weights: 1, 2, 3, 4");
 
-    ui_in = 8'b00000010;   // set load_weights bit high
-    @(posedge clk);
-    ui_in = 8'b00000000;
-    @(posedge clk);  
+    // Assert load_weights for one cycle to enter LOAD_W state
+    @(negedge clk); ui_in = 8'b00000010;  // load_weights=1
+    // Drop load_weights and present first bit simultaneously —
+    // the first load_w_bit pulse fires on the next posedge
+    @(negedge clk); ui_in = {7'b0, weight_bits[31]};
 
-    // Send 32 bits MSB-first into serial_in (ui_in[0])
-    for (bit_idx = 31; bit_idx >= 0; bit_idx = bit_idx - 1) begin
+    // Send remaining 31 bits
+    for (bit_idx = 30; bit_idx >= 0; bit_idx = bit_idx - 1) begin
+      @(negedge clk);
       ui_in = {7'b0, weight_bits[bit_idx]};
-      @(posedge clk);
     end
-    ui_in = 0;
+    @(negedge clk); ui_in = 0;
     wait_cycles(3);
 
-    // STEP 2: Compute 3 MAC steps with inputs 10, 20, 30
+    // -------------------------------------------------------
+    // STEP 2: Compute — data on uio_in, compute strobe on ui_in[2]
+    // Data and compute can be asserted simultaneously since they
+    // are on separate buses.
+    // -------------------------------------------------------
     $display("Computing with inputs: 10, 20, 30");
-    input_vals[0] = 10;
-    input_vals[1] = 20;
-    input_vals[2] = 30;
 
-    for (i = 0; i < 3; i = i + 1) begin
-      // data_in = input value, compute bit (bit 2) = 1
-      ui_in = input_vals[i] | 8'b00000100;
-      @(posedge clk);
-      ui_in = 0;
-      @(posedge clk);
-    end
-    wait_cycles(2);
+    @(negedge clk); uio_in = 8'd10; ui_in = 8'b00000100;  // compute with data=10
+    @(negedge clk); uio_in = 0;     ui_in = 0;
 
-    // STEP 3: Read out results
+    @(negedge clk); uio_in = 8'd20; ui_in = 8'b00000100;  // compute with data=20
+    @(negedge clk); uio_in = 0;     ui_in = 0;
+
+    @(negedge clk); uio_in = 8'd30; ui_in = 8'b00000100;  // compute with data=30
+    @(negedge clk); uio_in = 0;     ui_in = 0;
+
+    wait_cycles(3);
+
+    // -------------------------------------------------------
+    // STEP 3: Read out 64-bit result serially
+    // Pulse read_out → FSM loads shift register one cycle later
+    // (load_parallel_r is registered). Then 63 shift pulses follow.
+    // Sample serial_out right after the load posedge for bit63,
+    // then after each subsequent shift posedge for bits 62..0.
+    // -------------------------------------------------------
     $display("Reading results...");
-    ui_in = 8'b00001000;   // read_out = bit 3
-    @(posedge clk);
-    ui_in = 0;
+    @(negedge clk); ui_in = 8'b00001000;  // read_out=1
+    @(negedge clk); ui_in = 0;
 
+    // Next posedge: load_parallel fires, shift_reg = {accum0,accum1,accum2,accum3}
+    // serial_out = shift_reg[63] = accum0[15] right after this edge
+    @(posedge clk);
     result_bits = 0;
-    for (bit_idx = 63; bit_idx >= 0; bit_idx = bit_idx - 1) begin
+    result_bits[63] = uo_out[0];  // capture bit63 before first shift
+
+    // Each subsequent posedge shifts left; capture the new MSB
+    for (bit_idx = 62; bit_idx >= 0; bit_idx = bit_idx - 1) begin
       @(posedge clk);
       result_bits[bit_idx] = uo_out[0];
     end
 
-    // Unpack — use individual regs, not array indexing with part-select
     accum0 = result_bits[63:48];
     accum1 = result_bits[47:32];
     accum2 = result_bits[31:16];
@@ -95,9 +121,8 @@ module tb;
     if (accum0==60 && accum1==120 && accum2==180 && accum3==240)
       $display("PASS: All accumulators match expected values!");
     else
-      $display("FAIL: Mismatch detected. Check waveforms in GTKWave.");
+      $display("FAIL: Mismatch detected.");
 
     $finish;
   end
-
 endmodule

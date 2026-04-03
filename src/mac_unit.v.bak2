@@ -1,0 +1,42 @@
+module mac_unit (
+  input  wire        clk,
+  input  wire        rst_n,
+  input  wire        load_w_bit,
+  input  wire        w_bit_in,
+  input  wire        compute,
+  input  wire        clear,
+  input  wire [7:0]  data_in,
+  output wire [15:0] accum_out,
+  output wire [7:0]  weight_out
+);
+
+  reg [7:0]  weight;
+  reg [15:0] accum;
+  wire [15:0] product;
+
+  assign product = data_in * weight;
+
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      weight <= 8'b0;
+      accum  <= 16'b0;
+    end else begin
+      if (load_w_bit) begin
+        weight <= {weight[6:0], w_bit_in};
+        $display("  [MAC] load_w_bit: weight <= %b (shifted in %b)", {weight[6:0], w_bit_in}, w_bit_in);
+      end
+      if (clear) begin
+        accum <= 16'b0;
+        $display("  [MAC] clear accum");
+      end else if (compute) begin
+        $display("  [MAC] compute: data_in=%0d weight=%0d product=%0d accum_before=%0d accum_after=%0d",
+          data_in, weight, product, accum, accum + product);
+        accum <= accum + product;
+      end
+    end
+  end
+
+  assign accum_out  = accum;
+  assign weight_out = weight;
+
+endmodule
