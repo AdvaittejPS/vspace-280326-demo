@@ -1,4 +1,4 @@
-// tt_um_neuracc.v
+// project.v
 // Top-level module for NeurAcc — Neural Network MAC Accelerator.
 // Implements a 4-element weight-stationary systolic MAC array.
 //
