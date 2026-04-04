@@ -19,20 +19,19 @@ def read_bit(signal, index=0):
 
 
 async def load_weights(dut, weights):
-    # Pack weights: weight[0] is for u0 (first to be loaded, ends up in LSBs).
-    # Serial stream is MSB-first of the packed 16-bit word.
     packed = 0
     for w in reversed(weights):
         packed = (packed << 4) | (w & 0xF)
 
-    # Cycle 0: assert load_weights. FSM transitions IDLE->LOAD_W.
-    dut.ui_in.value = 0b00000010  # load_weights=1, serial_in=0
+    # Drive bit 15 at the same time as load_weights, so it's captured
+    # on the first clock edge when the FSM enters LOAD_W
+    first_bit = (packed >> 15) & 1
+    dut.ui_in.value = 0b00000010 | first_bit
     await RisingEdge(dut.clk)
 
-    # Cycles 1-16: FSM is in LOAD_W. Drive serial_in for bits 15 down to 0.
-    for i in range(15, -1, -1):
+    for i in range(14, -1, -1):
         bit = (packed >> i) & 1
-        dut.ui_in.value = bit  # load_weights=0; only serial_in matters
+        dut.ui_in.value = bit
         await RisingEdge(dut.clk)
 
     dut.ui_in.value = 0
