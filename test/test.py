@@ -54,19 +54,24 @@ async def read_accumulators(dut):
     return a0, a1, a2, a3
 
 
+async def reset_dut(dut):
+    """Shared reset sequence — longer hold for gate-level cell settling."""
+    dut.ena.value = 1
+    dut.ui_in.value = 0
+    dut.uio_in.value = 0
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 10)  # was 5 — extra hold for GL cell delays
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 5)   # was 2 — let outputs settle after reset
+
+
 @cocotb.test()
 async def test_basic_mac(dut):
     """weights=[1,2,3,4], inputs=[10,20,30] → accums=[60,120,180,240]"""
     clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
 
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await reset_dut(dut)
 
     await load_weights(dut, [1, 2, 3, 4])
 
@@ -88,13 +93,7 @@ async def test_zero_inputs(dut):
     clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
 
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await reset_dut(dut)
 
     await load_weights(dut, [5, 10, 15, 20])
 
@@ -113,13 +112,7 @@ async def test_clear(dut):
     clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
 
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
-    dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 5)
-    dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 2)
+    await reset_dut(dut)
 
     await load_weights(dut, [1, 1, 1, 1])
     await compute_input(dut, 50)
