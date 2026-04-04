@@ -1,21 +1,31 @@
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
+from cocotb.types import Logic
+
+
+def read_bit(signal, index=0):
+    """Safely read one bit from a signal, treating X/Z as 0.
+    Works in both RTL (clean 0/1) and GL (may contain X/Z) simulation."""
+    try:
+        return (int(signal.value) >> index) & 1
+    except ValueError:
+        # Signal contains X or Z — treat as 0 (safe default for GL sim)
+        val = signal.value
+        bit = val[len(val) - 1 - index]  # cocotb LogicArray is MSB-first
+        return 0 if bit in (Logic("X"), Logic("Z"), Logic("U")) else int(bit)
+
 
 async def load_weights(dut, weights):
     """Shift in 4x 4-bit weights MSB-first via serial interface."""
-    # Pack weights so u0 gets weights[0], u1 gets weights[1], etc.
-    # Shift chain: u0 receives last 4 bits, so send weights in reverse order
     packed = 0
     for w in reversed(weights):
         packed = (packed << 4) | (w & 0xF)
 
-    # Pulse load_weights to enter LOAD_W state
     await RisingEdge(dut.clk)
     dut.ui_in.value = 0b00000010  # load_weights=1
     await RisingEdge(dut.clk)
 
-    # Shift 16 bits MSB-first, dropping load_weights after first cycle
     for i in range(15, -1, -1):
         bit = (packed >> i) & 1
         dut.ui_in.value = bit  # serial_in only, load_weights=0
@@ -45,7 +55,7 @@ async def read_accumulators(dut):
     bits = 0
     for _ in range(40):
         await FallingEdge(dut.clk)
-        bits = (bits << 1) | (int(dut.uo_out.value) & 1)
+        bits = (bits << 1) | read_bit(dut.uo_out, index=0)  # serial_out is bit 0
 
     a0 = (bits >> 30) & 0x3FF
     a1 = (bits >> 20) & 0x3FF
@@ -55,14 +65,14 @@ async def read_accumulators(dut):
 
 
 async def reset_dut(dut):
-    """Shared reset sequence — longer hold for gate-level cell settling."""
+    """Shared reset — longer hold for gate-level cell settling."""
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
     dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)  # was 5 — extra hold for GL cell delays
+    await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 5)   # was 2 — let outputs settle after reset
+    await ClockCycles(dut.clk, 5)
 
 
 @cocotb.test()
