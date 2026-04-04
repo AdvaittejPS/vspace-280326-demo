@@ -35,7 +35,7 @@ async def load_weights(dut, weights):
         await RisingEdge(dut.clk)
 
     dut.ui_in.value = 0
-    await ClockCycles(dut.clk, 2)
+    await ClockCycles(dut.clk, 2)1
 
 
 async def compute_input(dut, data):

@@ -2,5 +2,5 @@
 read_verilog src/mac_unit.v
 read_verilog src/mac_array.v
 read_verilog src/project.v
-synth -top tt_um_neuracc -flatten
+synth -top tt_um_neuracc 
 stat
