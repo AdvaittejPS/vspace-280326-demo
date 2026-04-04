@@ -30,31 +30,24 @@ module tt_um_neuracc (
 
   reg [1:0] state;
   reg [5:0] bit_cnt;
-  reg       load_par_r;
 
-  // Combinational: fire in the same cycle as the state is active
   wire do_compute = (state == IDLE)   && compute;
   wire do_clear   = (state == IDLE)   && clear_accum;
   wire load_w_bit = (state == LOAD_W);
-  wire do_shift   = (state == READOUT);
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      state      <= IDLE;
-      bit_cnt    <= 6'd0;
-      load_par_r <= 1'b0;
+      state   <= IDLE;
+      bit_cnt <= 6'd0;
     end else begin
-      load_par_r <= 1'b0;
-
       case (state)
         IDLE: begin
           if (load_weights) begin
             bit_cnt <= 6'd0;
             state   <= LOAD_W;
           end else if (read_out) begin
-            load_par_r <= 1'b1;
-            bit_cnt    <= 6'd0;
-            state      <= READOUT;
+            bit_cnt <= 6'd0;
+            state   <= READOUT;
           end
         end
 
@@ -62,18 +55,16 @@ module tt_um_neuracc (
           if (bit_cnt == 6'd15) begin
             bit_cnt <= 6'd0;
             state   <= IDLE;
-          end else begin
+          end else
             bit_cnt <= bit_cnt + 1;
-          end
         end
 
         READOUT: begin
           if (bit_cnt == 6'd39) begin
             bit_cnt <= 6'd0;
             state   <= IDLE;
-          end else begin
+          end else
             bit_cnt <= bit_cnt + 1;
-          end
         end
 
         default: state <= IDLE;
@@ -82,27 +73,20 @@ module tt_um_neuracc (
   end
 
   wire [9:0] accum0, accum1, accum2, accum3;
-  wire       serial_out_wire;
 
   mac_array u_array (
     .clk(clk), .rst_n(rst_n),
     .load_w_bit(load_w_bit), .w_serial_in(serial_in),
     .compute(do_compute), .clear(do_clear),
     .data_in(data_in),
-    .accum0(accum0), .accum1(accum1), .accum2(accum2), .accum3(accum3),
-    .w_serial_out()
+    .accum0(accum0), .accum1(accum1), .accum2(accum2), .accum3(accum3)
   );
 
-  output_scan u_scan (
-    .clk(clk), .rst_n(rst_n),
-    .load_parallel(load_par_r),
-    .shift(do_shift),
-    .accum0(accum0), .accum1(accum1), .accum2(accum2), .accum3(accum3),
-    .serial_out(serial_out_wire),
-    .bit_idx(bit_cnt)
-  );
+  // Serial readout: index directly into packed accumulator bus — no shift register needed.
+  wire [39:0] accum_bus = {accum0, accum1, accum2, accum3};
+  wire serial_out = (state == READOUT) ? accum_bus[6'd39 - bit_cnt] : 1'b0;
 
-  assign uo_out[0] = serial_out_wire;
+  assign uo_out[0] = serial_out;
   assign uo_out[1] = (state == IDLE);
   assign uo_out[7:2] = 6'b0;
 
