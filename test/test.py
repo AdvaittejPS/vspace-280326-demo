@@ -1,87 +1,141 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, FallingEdge
+from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 
-# REFERENCE MODEL (Golden Vector Generator)
-class StopwatchModel:
-    def __init__(self):
-        self.digit = 0
-        self.running = False
-        # 7-segment hex values for 0-9
-        self.segments = [
-            0b0111111, 0b0000110, 0b1011011, 0b1001111, 0b1100110, 
-            0b1101101, 0b1111101, 0b0000111, 0b1111111, 0b1101111
-        ]
+async def load_weights(dut, weights):
+    """Shift in 4x 4-bit weights MSB-first via serial interface."""
+    # Pack weights so u0 gets weights[0], u1 gets weights[1], etc.
+    # Shift chain: u0 receives last 4 bits, so send weights in reverse order
+    packed = 0
+    for w in reversed(weights):
+        packed = (packed << 4) | (w & 0xF)
 
-    def reset(self):
-        self.digit = 0
-        self.running = False
+    # Pulse load_weights to enter LOAD_W state
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0b00000010  # load_weights=1
+    await RisingEdge(dut.clk)
 
-    def set_run_state(self, state):
-        self.running = bool(state)
+    # Shift 16 bits MSB-first, dropping load_weights after first cycle
+    for i in range(15, -1, -1):
+        bit = (packed >> i) & 1
+        dut.ui_in.value = bit  # serial_in only, load_weights=0
+        await RisingEdge(dut.clk)
 
-    def tick(self):
-        if self.running:
-            if self.digit == 9:
-                self.digit = 0
-            else:
-                self.digit += 1
+    dut.ui_in.value = 0
+    await ClockCycles(dut.clk, 3)
 
-    def get_expected_output(self):
-        return self.segments[self.digit]
 
-# TEST SUITE
+async def compute_input(dut, data):
+    """Assert compute with data_in for one clock cycle."""
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = data
+    dut.ui_in.value = 0b00000100  # compute=1
+    await RisingEdge(dut.clk)
+    dut.uio_in.value = 0
+    dut.ui_in.value = 0
+
+
+async def read_accumulators(dut):
+    """Read out 40-bit serial result and return (a0, a1, a2, a3)."""
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0b00001000  # read_out=1
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0
+
+    bits = 0
+    for _ in range(40):
+        await FallingEdge(dut.clk)
+        bits = (bits << 1) | int(dut.uo_out.value & 1)
+
+    a0 = (bits >> 30) & 0x3FF
+    a1 = (bits >> 20) & 0x3FF
+    a2 = (bits >> 10) & 0x3FF
+    a3 = (bits >>  0) & 0x3FF
+    return a0, a1, a2, a3
+
+
 @cocotb.test()
-async def test_stopwatch_golden_vectors(dut):
-    dut._log.info("Starting Golden Vector Stopwatch Test")
-    
-    # Initialize software reference model
-    model = StopwatchModel()
-
-    # Set the clock period (Using 10us to match the official TT template)
-    clock = Clock(dut.clk, 10, unit="us")
+async def test_basic_mac(dut):
+    """weights=[1,2,3,4], inputs=[10,20,30] → accums=[60,120,180,240]"""
+    clock = Clock(dut.clk, 10, unit="ns")
     cocotb.start_soon(clock.start())
 
-    # Phase 1: Reset Sequence
-    dut._log.info("Resetting design")
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
     dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
+    await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
-    model.reset()
     await ClockCycles(dut.clk, 2)
-    
-    assert int(dut.uo_out.value) == model.get_expected_output(), "Failed at Reset!"
 
-    # Phase 2: Counting Sequence
-    dut._log.info("Pressing Start Button")
-    dut.ui_in.value = 1
-    model.set_run_state(True)
+    await load_weights(dut, [1, 2, 3, 4])
 
-    # Test 15 'seconds' (Our tb.v overrides 1 second to equal 10 clocks)
-    for simulated_second in range(15):
-        await ClockCycles(dut.clk, 10)
-        await FallingEdge(dut.clk)
-        model.tick()
-        
-        expected = model.get_expected_output()
-        actual = int(dut.uo_out.value)
-        
-        dut._log.info(f"Sec {simulated_second + 1}: Expected {bin(expected)}, Got {bin(actual)}")
-        assert actual == expected, f"Mismatch at second {simulated_second + 1}!"
+    for x in [10, 20, 30]:
+        await compute_input(dut, x)
+    await ClockCycles(dut.clk, 3)
 
-    # Phase 3: Pause Sequence
-    dut._log.info("Pressing Pause Button")
+    a0, a1, a2, a3 = await read_accumulators(dut)
+    dut._log.info(f"accum0={a0} accum1={a1} accum2={a2} accum3={a3}")
+    assert a0 == 60,  f"accum0: got {a0}, expected 60"
+    assert a1 == 120, f"accum1: got {a1}, expected 120"
+    assert a2 == 180, f"accum2: got {a2}, expected 180"
+    assert a3 == 240, f"accum3: got {a3}, expected 240"
+
+
+@cocotb.test()
+async def test_zero_inputs(dut):
+    """weights=[5,10,15,20], inputs=[0,0,0] → accums=[0,0,0,0]"""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    dut.ena.value = 1
     dut.ui_in.value = 0
-    model.set_run_state(False)
-    
-    # Wait 5 'seconds' to ensure it doesn't count while paused
-    for _ in range(5):
-        await ClockCycles(dut.clk, 10)
-        await FallingEdge(dut.clk)
-        model.tick()
-        
-    assert int(dut.uo_out.value) == model.get_expected_output(), "Pause failed! HW kept counting."
-    dut._log.info("All Golden Vector tests passed perfectly!")
+    dut.uio_in.value = 0
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    await load_weights(dut, [5, 10, 15, 20])
+
+    for x in [0, 0, 0]:
+        await compute_input(dut, x)
+    await ClockCycles(dut.clk, 3)
+
+    a0, a1, a2, a3 = await read_accumulators(dut)
+    assert a0 == 0 and a1 == 0 and a2 == 0 and a3 == 0, \
+        f"Expected all zeros, got {a0},{a1},{a2},{a3}"
+
+
+@cocotb.test()
+async def test_clear(dut):
+    """Accumulate, then clear, then accumulate again."""
+    clock = Clock(dut.clk, 10, unit="ns")
+    cocotb.start_soon(clock.start())
+
+    dut.ena.value = 1
+    dut.ui_in.value = 0
+    dut.uio_in.value = 0
+    dut.rst_n.value = 0
+    await ClockCycles(dut.clk, 5)
+    dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 2)
+
+    await load_weights(dut, [1, 1, 1, 1])
+    await compute_input(dut, 50)
+    await ClockCycles(dut.clk, 2)
+
+    # Clear accumulators
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0b00010000  # clear_accum=1
+    await RisingEdge(dut.clk)
+    dut.ui_in.value = 0
+    await ClockCycles(dut.clk, 2)
+
+    # Accumulate fresh
+    await compute_input(dut, 7)
+    await ClockCycles(dut.clk, 3)
+
+    a0, a1, a2, a3 = await read_accumulators(dut)
+    assert a0 == 7 and a1 == 7 and a2 == 7 and a3 == 7, \
+        f"After clear+compute(7): got {a0},{a1},{a2},{a3}, expected all 7"
