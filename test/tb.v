@@ -45,13 +45,13 @@ module tb;
     wait_cycles(3);
 
     // Compute with inputs 10, 20, 30
+    // Assert compute+data just before a posedge, deassert right after — one MAC step per input.
     $display("Computing with inputs: 10, 20, 30");
-    @(negedge clk); uio_in=8'd10; ui_in=8'b00000100;
-    @(negedge clk); uio_in=0;     ui_in=0;
-    @(negedge clk); uio_in=8'd20; ui_in=8'b00000100;
-    @(negedge clk); uio_in=0;     ui_in=0;
-    @(negedge clk); uio_in=8'd30; ui_in=8'b00000100;
-    @(negedge clk); uio_in=0;     ui_in=0;
+    // Set data just after posedge so it's stable for the NEXT posedge capture
+    @(posedge clk); #1; uio_in=8'd10; ui_in=8'b00000100;
+    @(posedge clk); #1; uio_in=8'd20; ui_in=8'b00000100;
+    @(posedge clk); #1; uio_in=8'd30; ui_in=8'b00000100;
+    @(posedge clk); #1; uio_in=0;     ui_in=0;
     wait_cycles(3);
 
     // Read out 40 bits MSB-first.
@@ -62,14 +62,15 @@ module tb;
     //   negedge after PB: sample bit 38.
     //   ... repeat for 40 bits total (bit_cnt 0..39).
     $display("Reading results...");
-    @(negedge clk); ui_in=8'b00001000;  // read_out=1
-    @(negedge clk); ui_in=0;
-    // PA happened between the two negedges above: FSM entered READOUT, bit_cnt=0.
+    // Pulse read_out for one cycle to enter READOUT state
+    @(posedge clk); #1; ui_in=8'b00001000;
+    @(posedge clk); #1; ui_in=0;
+    // FSM is now in READOUT, bit_cnt=0. Each posedge increments bit_cnt and shifts serial_out.
+    // Sample serial_out at negedge (stable after posedge updates bit_cnt).
     result_bits=0;
     for (bit_idx=39; bit_idx>=0; bit_idx=bit_idx-1) begin
-      @(negedge clk);                    // sample after each posedge (bit_cnt increments on posedge)
+      @(negedge clk);
       result_bits[bit_idx] = uo_out[0];
-      if (bit_idx > 0) @(posedge clk);  // advance bit_cnt (skip last to avoid over-counting)
     end
 
     accum0 = result_bits[39:30];

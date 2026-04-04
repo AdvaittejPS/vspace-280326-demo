@@ -31,8 +31,8 @@ module tt_um_neuracc (
   reg [1:0] state;
   reg [5:0] bit_cnt;
 
-  wire do_compute = (state == IDLE)   && compute;
-  wire do_clear   = (state == IDLE)   && clear_accum;
+  wire do_compute = (state == IDLE) && compute;
+  wire do_clear   = (state == IDLE) && clear_accum;
   wire load_w_bit = (state == LOAD_W);
 
   always @(posedge clk or negedge rst_n) begin
