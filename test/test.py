@@ -5,12 +5,10 @@ from cocotb.types import Logic
 
 
 def read_bit(signal, index=0):
-    """Safely read one bit from a signal, treating X/Z as 0.
-    Works in both RTL (clean 0/1) and GL (may contain X/Z) simulation."""
+    """Safely read one bit from a signal, treating X/Z as 0."""
     try:
         return (int(signal.value) >> index) & 1
     except ValueError:
-        # Signal contains X or Z — treat as 0 (safe default for GL sim)
         val = signal.value
         bit = val[len(val) - 1 - index]  # cocotb LogicArray is MSB-first
         return 0 if bit in (Logic("X"), Logic("Z"), Logic("U")) else int(bit)
@@ -22,14 +20,15 @@ async def load_weights(dut, weights):
     for w in reversed(weights):
         packed = (packed << 4) | (w & 0xF)
 
-    await RisingEdge(dut.clk)
+    # Drive on falling edge so signal is stable well before next rising edge
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0b00000010  # load_weights=1
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)    # one full cycle later, drop load_weights
 
     for i in range(15, -1, -1):
         bit = (packed >> i) & 1
-        dut.ui_in.value = bit  # serial_in only, load_weights=0
-        await RisingEdge(dut.clk)
+        dut.ui_in.value = bit     # serial_in only, load_weights=0
+        await FallingEdge(dut.clk)
 
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 3)
@@ -37,25 +36,26 @@ async def load_weights(dut, weights):
 
 async def compute_input(dut, data):
     """Assert compute with data_in for one clock cycle."""
-    await RisingEdge(dut.clk)
+    # Drive on falling edge — stable before the next rising edge capture
+    await FallingEdge(dut.clk)
     dut.uio_in.value = data
     dut.ui_in.value = 0b00000100  # compute=1
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.uio_in.value = 0
     dut.ui_in.value = 0
 
 
 async def read_accumulators(dut):
     """Read out 40-bit serial result and return (a0, a1, a2, a3)."""
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0b00001000  # read_out=1
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0
 
     bits = 0
     for _ in range(40):
         await FallingEdge(dut.clk)
-        bits = (bits << 1) | read_bit(dut.uo_out, index=0)  # serial_out is bit 0
+        bits = (bits << 1) | read_bit(dut.uo_out, index=0)
 
     a0 = (bits >> 30) & 0x3FF
     a1 = (bits >> 20) & 0x3FF
@@ -129,9 +129,9 @@ async def test_clear(dut):
     await ClockCycles(dut.clk, 2)
 
     # Clear accumulators
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0b00010000  # clear_accum=1
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 2)
 
