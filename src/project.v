@@ -1,17 +1,7 @@
-// project.v
-// Top-level module for NeurAcc — Neural Network MAC Accelerator.
-// Implements a 4-element weight-stationary systolic MAC array.
-//
-// Pin mapping:
-// ui_in[0]   = serial_in   (weight bit in load mode)
-// ui_in[1]   = load_weights (start loading weights)
-// ui_in[2]   = compute      (do one MAC step)
-// ui_in[3]   = read_out    (start reading results)
-// ui_in[4]   = clear_accum (reset accumulators)
-// uio_in[7:0] = data_in    (8-bit input for MAC compute steps)
-// uo_out[0]  = serial_out  (result bit out)
-// uo_out[1]  = ready
-
+// project.v — NeurAcc, 4-element weight-stationary MAC accelerator.
+// ui_in[0]=serial_in, [1]=load_weights, [2]=compute, [3]=read_out, [4]=clear_accum
+// uio_in[7:0]=data_in
+// uo_out[0]=serial_out, [1]=ready
 `timescale 1ns/1ps
 
 module tt_um_neuracc (
@@ -24,54 +14,37 @@ module tt_um_neuracc (
   input  wire       clk,
   input  wire       rst_n
 );
-
   assign uio_out = 8'b0;
   assign uio_oe  = 8'b0;
 
-  // Pin aliases — control bits on ui_in, data on uio_in
-  wire       serial_in    = ui_in[0];
-  wire       load_weights = ui_in[1];
-  wire       compute      = ui_in[2];
-  wire       read_out     = ui_in[3];
-  wire       clear_accum  = ui_in[4];
-
-  // Data input comes from uio_in, completely separate from control bits.
-  // This avoids the conflict where data values (e.g. 10 = 8'b00001010)
-  // accidentally assert control signals like load_weights (bit 1).
+  wire serial_in    = ui_in[0];
+  wire load_weights = ui_in[1];
+  wire compute      = ui_in[2];
+  wire read_out     = ui_in[3];
+  wire clear_accum  = ui_in[4];
   wire [7:0] data_in = uio_in;
 
-  // FSM states
-  localparam IDLE     = 2'd0;
-  localparam LOAD_W   = 2'd1;
-  localparam READ_OUT = 2'd2;
+  localparam IDLE    = 2'd0;
+  localparam LOAD_W  = 2'd1;
+  localparam READOUT = 2'd2;
 
   reg [1:0] state;
   reg [5:0] bit_cnt;
+  reg       load_par_r;
 
-  // Control signals — registered to avoid combinational glitches
-  reg load_w_bit_r;
-  reg load_parallel_r;
-  reg do_shift_r;
-
-  // do_compute and do_clear are pure combinational
-  wire do_compute    = (state == IDLE) && compute;
-  wire do_clear      = (state == IDLE) && clear_accum;
-  wire load_w_bit    = load_w_bit_r;
-  wire load_parallel = load_parallel_r;
-  wire do_shift      = do_shift_r;
+  // Combinational: fire in the same cycle as the state is active
+  wire do_compute = (state == IDLE)   && compute;
+  wire do_clear   = (state == IDLE)   && clear_accum;
+  wire load_w_bit = (state == LOAD_W);
+  wire do_shift   = (state == READOUT);
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      state          <= IDLE;
-      bit_cnt        <= 6'd0;
-      load_w_bit_r   <= 1'b0;
-      load_parallel_r<= 1'b0;
-      do_shift_r     <= 1'b0;
+      state      <= IDLE;
+      bit_cnt    <= 6'd0;
+      load_par_r <= 1'b0;
     end else begin
-      // Default all registered controls to 0
-      load_w_bit_r    <= 1'b0;
-      load_parallel_r <= 1'b0;
-      do_shift_r      <= 1'b0;
+      load_par_r <= 1'b0;
 
       case (state)
         IDLE: begin
@@ -79,16 +52,14 @@ module tt_um_neuracc (
             bit_cnt <= 6'd0;
             state   <= LOAD_W;
           end else if (read_out) begin
-            load_parallel_r <= 1'b1;
-            bit_cnt         <= 6'd0;
-            state           <= READ_OUT;
+            load_par_r <= 1'b1;
+            bit_cnt    <= 6'd0;
+            state      <= READOUT;
           end
-          // do_compute and do_clear are combinational — no action needed here
         end
 
         LOAD_W: begin
-          load_w_bit_r <= 1'b1;
-          if (bit_cnt == 6'd31) begin
+          if (bit_cnt == 6'd15) begin
             bit_cnt <= 6'd0;
             state   <= IDLE;
           end else begin
@@ -96,9 +67,8 @@ module tt_um_neuracc (
           end
         end
 
-        READ_OUT: begin
-          do_shift_r <= 1'b1;
-          if (bit_cnt == 6'd63) begin
+        READOUT: begin
+          if (bit_cnt == 6'd39) begin
             bit_cnt <= 6'd0;
             state   <= IDLE;
           end else begin
@@ -111,26 +81,25 @@ module tt_um_neuracc (
     end
   end
 
-  // Module instantiations
-  wire [15:0] accum0, accum1, accum2, accum3;
-  wire        serial_out_wire;
+  wire [9:0] accum0, accum1, accum2, accum3;
+  wire       serial_out_wire;
 
   mac_array u_array (
     .clk(clk), .rst_n(rst_n),
     .load_w_bit(load_w_bit), .w_serial_in(serial_in),
     .compute(do_compute), .clear(do_clear),
     .data_in(data_in),
-    .accum0(accum0), .accum1(accum1),
-    .accum2(accum2), .accum3(accum3),
+    .accum0(accum0), .accum1(accum1), .accum2(accum2), .accum3(accum3),
     .w_serial_out()
   );
 
   output_scan u_scan (
     .clk(clk), .rst_n(rst_n),
-    .load_parallel(load_parallel), .shift(do_shift),
-    .accum0(accum0), .accum1(accum1),
-    .accum2(accum2), .accum3(accum3),
-    .serial_out(serial_out_wire)
+    .load_parallel(load_par_r),
+    .shift(do_shift),
+    .accum0(accum0), .accum1(accum1), .accum2(accum2), .accum3(accum3),
+    .serial_out(serial_out_wire),
+    .bit_idx(bit_cnt)
   );
 
   assign uo_out[0] = serial_out_wire;
