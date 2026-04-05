@@ -3,11 +3,6 @@ from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, FallingEdge, RisingEdge
 from cocotb.types import Logic
 
-# No GL/RTL timing split needed. The RTL now registers all control signals,
-# so there are no combinatorial paths from input pads to downstream FFs.
-# The testbench protocol is: drive inputs before a rising edge, let the
-# FSM register and act on them the following cycle.
-
 
 def read_bit(signal, index=0):
     try:
@@ -19,17 +14,15 @@ def read_bit(signal, index=0):
 
 
 async def load_weights(dut, weights):
+    # Pack with w[0] in MSB so it arrives at u0 after shifting through the chain
     packed = 0
-    for w in weights:               # w[3] in MSB, NOT reversed
+    for w in reversed(weights):
         packed = (packed << 4) | (w & 0xF)
 
-    # Assert load_weights AND first data bit together on cycle 0
-    # This bit gets shifted in on cycle 1 when FSM first enters LOAD_W
     first_bit = (packed >> 15) & 1
-    dut.ui_in.value = 0b00000010 | first_bit   # load_weights=1, serial_in=bit15
+    dut.ui_in.value = 0b00000010 | first_bit  # load_weights=1, serial_in=bit15
     await RisingEdge(dut.clk)
 
-    # Cycles 1..15: state=LOAD_W, send bits 14 down to 0
     for i in range(14, -1, -1):
         bit = (packed >> i) & 1
         dut.ui_in.value = bit
@@ -38,13 +31,14 @@ async def load_weights(dut, weights):
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 2)
 
+
 async def compute_input(dut, data):
     dut.uio_in.value = data
-    dut.ui_in.value = 0b00000100  # compute=1
+    dut.ui_in.value = 0b00000100  # compute=1 for exactly one cycle
     await RisingEdge(dut.clk)
+    dut.ui_in.value = 0           # deassert before next rising edge
     dut.uio_in.value = 0
-    dut.ui_in.value = 0
-    await RisingEdge(dut.clk)  # let do_compute_r pulse propagate
+    await ClockCycles(dut.clk, 1)
 
 
 async def read_accumulators(dut):
