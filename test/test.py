@@ -50,14 +50,15 @@ async def compute_input(dut, data):
 async def read_accumulators(dut):
     await FallingEdge(dut.clk)
     dut.ui_in.value = 0b00001000      # read_out=1
-    await RisingEdge(dut.clk)         # FSM: IDLE→READOUT
-    await FallingEdge(dut.clk)
-    dut.ui_in.value = 0
+    await RisingEdge(dut.clk)         # FSM: IDLE→READOUT, bit_cnt=0, serial_out=accum_bus[39]
 
     bits = 0
     for _ in range(40):
-        await FallingEdge(dut.clk)
+        await FallingEdge(dut.clk)    # sample serial_out, then bit_cnt increments on next rise
         bits = (bits << 1) | read_bit(dut.uo_out, index=0)
+
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = 0
 
     a0 = (bits >> 30) & 0x3FF
     a1 = (bits >> 20) & 0x3FF
