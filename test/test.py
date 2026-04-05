@@ -68,6 +68,10 @@ async def read_accumulators(dut):
 
 
 async def reset_dut(dut):
+    # Drive power pins for gate-level simulation
+    if hasattr(dut, 'VPWR'):
+        dut.VPWR.value = 1
+        dut.VGND.value = 0
     dut.ena.value    = 1
     dut.ui_in.value  = 0
     dut.uio_in.value = 0
