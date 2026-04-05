@@ -14,36 +14,44 @@ def read_bit(signal, index=0):
 
 
 async def load_weights(dut, weights):
-    # Pack with w[0] in MSB so it arrives at u0 after shifting through the chain
+    # Pack w[3]..w[0] MSB-first so u0 gets w[0] after 16 shifts through chain
     packed = 0
     for w in reversed(weights):
         packed = (packed << 4) | (w & 0xF)
 
-    first_bit = (packed >> 15) & 1
-    dut.ui_in.value = 0b00000010 | first_bit  # load_weights=1, serial_in=bit15
-    await RisingEdge(dut.clk)
+    # Trigger FSM entry to LOAD_W — drive from falling edge for GL timing margin
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = 0b00000010      # load_weights=1, serial_in=0
+    await RisingEdge(dut.clk)         # FSM: IDLE→LOAD_W, bit_cnt=0
 
-    for i in range(14, -1, -1):
+    # Send 16 bits MSB-first, one per cycle
+    for i in range(15, -1, -1):
         bit = (packed >> i) & 1
-        dut.ui_in.value = bit
-        await RisingEdge(dut.clk)
+        await FallingEdge(dut.clk)
+        dut.ui_in.value = bit         # serial_in=bit, load_weights=0
+        await RisingEdge(dut.clk)     # shifts this bit (bit_cnt 0..15)
 
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 2)
 
 
 async def compute_input(dut, data):
+    await FallingEdge(dut.clk)
     dut.uio_in.value = data
-    dut.ui_in.value = 0b00000100  # compute=1 for exactly one cycle
-    await RisingEdge(dut.clk)
-    dut.ui_in.value = 0           # deassert before next rising edge
+    dut.ui_in.value = 0b00000100      # compute=1
+    await RisingEdge(dut.clk)         # MAC accumulates once
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = 0
     dut.uio_in.value = 0
-    await ClockCycles(dut.clk, 1)
+    await RisingEdge(dut.clk)
 
 
 async def read_accumulators(dut):
-    dut.ui_in.value = 0b00001000  # read_out=1
-    await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = 0b00001000      # read_out=1
+    await RisingEdge(dut.clk)         # FSM: IDLE→READOUT
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0
 
     bits = 0
@@ -111,8 +119,10 @@ async def test_clear(dut):
     await compute_input(dut, 50)
     await ClockCycles(dut.clk, 2)
 
-    dut.ui_in.value = 0b00010000  # clear_accum=1
+    await FallingEdge(dut.clk)
+    dut.ui_in.value = 0b00010000      # clear_accum=1
     await RisingEdge(dut.clk)
+    await FallingEdge(dut.clk)
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 2)
 
