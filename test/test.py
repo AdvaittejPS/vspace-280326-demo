@@ -20,22 +20,23 @@ def read_bit(signal, index=0):
 
 async def load_weights(dut, weights):
     packed = 0
-    for w in reversed(weights):
+    for w in weights:               # w[3] in MSB, NOT reversed
         packed = (packed << 4) | (w & 0xF)
 
-    # Dummy bit cycle — FSM enters LOAD_W and shifts in a 0
-    dut.ui_in.value = 0b00000010  # load_weights=1, serial_in=0
+    # Assert load_weights AND first data bit together on cycle 0
+    # This bit gets shifted in on cycle 1 when FSM first enters LOAD_W
+    first_bit = (packed >> 15) & 1
+    dut.ui_in.value = 0b00000010 | first_bit   # load_weights=1, serial_in=bit15
     await RisingEdge(dut.clk)
 
-    # Real 16 bits MSB-first
-    for i in range(15, -1, -1):
+    # Cycles 1..15: state=LOAD_W, send bits 14 down to 0
+    for i in range(14, -1, -1):
         bit = (packed >> i) & 1
         dut.ui_in.value = bit
         await RisingEdge(dut.clk)
 
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 2)
-
 
 async def compute_input(dut, data):
     dut.uio_in.value = data
