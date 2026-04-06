@@ -17,11 +17,14 @@ module tt_um_neuracc (
   assign uio_out = 8'b0;
   assign uio_oe  = 8'b0;
 
+  /* verilator lint_off UNUSEDSIGNAL */
   wire serial_in    = ui_in[0];
   wire load_weights = ui_in[1];
   wire compute      = ui_in[2];
   wire read_out     = ui_in[3];
   wire clear_accum  = ui_in[4];
+  // ui_in[7:5] and ena are intentionally unused (reserved pins)
+  /* verilator lint_on UNUSEDSIGNAL */
   wire [7:0] data_in = uio_in;
 
   localparam IDLE    = 2'd0;

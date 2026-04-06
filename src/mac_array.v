@@ -24,7 +24,9 @@ module mac_array (
                .compute(compute), .clear(clear), .data_in(data_in),
                .accum_out(accum2), .w_msb_out(w_msb2));
 
+  /* verilator lint_off PINCONNECTEMPTY */
   mac_unit u3 (.clk(clk), .rst_n(rst_n), .load_w_bit(load_w_bit), .w_bit_in(w_msb2),
                .compute(compute), .clear(clear), .data_in(data_in),
                .accum_out(accum3), .w_msb_out());
+  /* verilator lint_on PINCONNECTEMPTY */
 endmodule

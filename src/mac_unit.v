@@ -14,7 +14,9 @@ module mac_unit (
   reg [3:0] weight;
   reg [9:0] accum;
 
+  /* verilator lint_off UNUSEDSIGNAL */
   wire [11:0] product = data_in * weight;
+  /* verilator lint_on UNUSEDSIGNAL */
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
