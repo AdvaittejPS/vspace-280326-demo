@@ -1,45 +1,109 @@
-<!---
+# 4-PLC Configurable Logic Fabric
 
-This file is used to generate your project datasheet. Please fill in the information below and delete any unused
-sections.
+## What is this?
 
-You can also include images in this folder and reference them in the markdown. Each image must be less than
-512 kb in size, and the combined size of all images must be less than 1 MB.
--->
+This project implements a tiny configurable logic fabric made up of 4 programmable logic cells (PLCs), designed for Tiny Tapeout.
+
+Each PLC is a small 2-input lookup table (LUT) that can implement **any Boolean function of two inputs**. By connecting multiple PLCs together, more complex logic functions can be created.
+
+The design is intentionally simple and optimized for **very low area (~70–100 standard cells)**.
+
+---
+
+## Key Features
+
+- 4 configurable logic blocks (PLCs)
+- Each PLC is a 2-input LUT (4-bit truth table)
+- Supports chaining to build more complex logic
+- No internal memory → configuration is direct and simple
+- Extremely compact and efficient
+- Fully combinational (no clock-dependent logic)
+
+---
+
+## Architecture
+
+The 4 PLCs are connected in a small chain:
+PLC0 → p0 (uses ui_in[1:0])
+PLC1 → p1 (uses ui_in[3:2])
+PLC2 → p2 (uses p0 and p1)
+PLC3 → p3 (uses p1 and p2)
+
+
+### How to interpret this:
+
+- **PLC0 and PLC1** compute basic logic from inputs  
+- **PLC2 and PLC3** combine earlier results to build more complex functions  
+
+This structure allows both:
+- Parallel logic (PLC0, PLC1)
+- Chained logic (PLC2, PLC3)
+
+---
 
 ## How it works
-The V-SPACE Demo Hardware Stopwatch is a 1-second interval counter that displays digits from 0 to 9 on a standard 7-segment display. The design is broken down into three main hardware modules:
 
-+ The Clock Divider: The Tiny Tapeout board provides a default 10 MHz clock. Our Verilog code uses a 24-bit register to count exactly 9,999,999 clock cycles, generating a single 1 Hz pulse (one pulse per second).
+Each PLC uses a 4-bit LUT to define its behavior:
 
-+ The Digit Counter (BCD): Every time the 1 Hz pulse triggers, a 4-bit register increments. Once the counter reaches 9, it automatically wraps back around to 0.
+| Inputs (b,a) | Output |
+|-------------|--------|
+| 00 | LUT[0] |
+| 01 | LUT[1] |
+| 10 | LUT[2] |
+| 11 | LUT[3] |
 
-+ The 7-Segment Decoder: Pure combinational logic continuously reads the 4-bit counter and outputs the correct 7-bit binary pattern to light up the corresponding segments (A through G) on an LED display.
+By changing the LUT values, you can implement different logic functions.
 
-The counting sequence is controlled by a hardware enable switch connected to ui_in[0]. When the switch is HIGH, the clock divider runs and the counter increments. When the switch is LOW, the clock divider pauses, freezing the current number on the display.
+---
 
-## How to test
+## Example Configurations
 
-To physically test this chip once manufactured (or when using the Tiny Tapeout Commander app):
+| Function | LUT Value |
+|----------|----------|
+| AND | `1000` |
+| OR  | `1110` |
+| XOR | `0110` |
 
-+ Power & Clock: Ensure the Tiny Tapeout board is powered and the system clock is set to 10 MHz.
+---
 
-+ Reset: Press the system reset button (pulling rst_n LOW) to clear all internal registers. The 7-segment display should show 0.
+## Inputs
 
-+ Start Counting: Flip Input Switch 0 (ui_in[0]) to the HIGH (ON) position. The display will begin ticking up by one every second.
+### `ui_in` (Logic Inputs)
 
-+ Pause Counting: Flip Input Switch 0 to the LOW (OFF) position. The display will freeze on the current digit.
+| Bits | Description |
+|------|------------|
+| [1:0] | Inputs to PLC0 |
+| [3:2] | Inputs to PLC1 |
 
-+ Resume: Flip Input Switch 0 back HIGH to resume counting from the paused digit.
+---
 
-+ Hard Reset: At any time, pressing the reset button will immediately force the counter back to 0.
+### `uio_in` (Configuration)
 
-## External hardware
+| Bits | Description |
+|------|------------|
+| [3:0] | LUT for PLC0 and PLC2 |
+| [7:4] | LUT for PLC1 and PLC3 |
 
-To view the output of this project, you will need:
+---
 
-+ Tiny Tapeout Demo Board (or equivalent carrier board).
+## Outputs
 
-+ 7-Segment Display PMOD connected to the dedicated output pins (uo_out[0:7]).
+| Bits | Description |
+|------|------------|
+| uo[0] | Output of PLC0 |
+| uo[1] | Output of PLC1 |
+| uo[2] | Output of PLC2 |
+| uo[3] | Output of PLC3 |
 
-+ A simple DIP switch or push-button connected to input pin 0 (ui_in[0]) to act as the Start/Pause toggle.
+---
+
+## Why this project?
+
+This project demonstrates how **FPGA-style configurable logic** can be implemented in an extremely small ASIC design.
+
+It highlights:
+- LUT-based logic design  
+- Hardware reuse through chaining  
+- Efficient design under strict area constraints  
+
+All within a minimal and easy-to-understand architecture.
