@@ -1,6 +1,6 @@
 `default_nettype none
 
-module tt_um_advaittej_stopwatch #(
+module tt_um_i2c_pwm #(
     parameter CLOCKS_PER_SECOND = 24'd9_999_999
 )(
     // DO NOT CHANGE THESE NAMES!!
@@ -15,72 +15,159 @@ module tt_um_advaittej_stopwatch #(
     input  wire       rst_n     // reset_n - low to reset
 );
 
-    // Intuitive aliasing ie translating TT to readable names
-    assign uio_out = 8'b0; // Tie off unused pins to prevent errors
-    assign uio_oe  = 8'b0;
+   // I2C Signal Definitions
+   wire scl    = ui_in[0]; // input clock from master
+   wire sda_in = ui_in[1]; // input data
+   reg  sda_out;
 
-    // Inverting active-low reset so 1 means reset now for our logic
-    wire reset_active = !rst_n;       
-    
-    // Pin 0 of input block is button
-    wire start_pause_btn = ui_in[0];  
-    
-    // Internal wire for 7-segment data
-    wire [6:0] led_segments;          
+   // PWM Engine with Prescaler
+   reg [7:0] p_cnt;
+   reg [7:0] pwm_cnt;
 
-    // Drive physical output pins with our internal data
-    assign uo_out[6:0] = led_segments; 
-    assign uo_out[7]   = 1'b0; // Decimal point off
+   // Internal Registers
+   reg [7:0] duty_cycle;
+   reg [7:0] prescaler;
 
-    // CLOCK DIVIDER
-    reg [23:0] clock_counter;
-    wire one_second_pulse = (clock_counter == CLOCKS_PER_SECOND);
+   // Assign outputs
+   // NOTE: uo_out[0] is assigned only once (below via continuous assign)
+   assign uo_out[0]   = (pwm_cnt < duty_cycle);
+   assign uo_out[1]   = sda_out;
+   assign uo_out[7:2] = 6'b0;
+   assign uio_oe      = 8'b0;
+   assign uio_out     = 8'b0;
 
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            clock_counter <= 0;
-        end else if (start_pause_btn) begin
-            if (one_second_pulse) begin
-                clock_counter <= 0;
-            end else begin
-                clock_counter <= clock_counter + 1;
-            end
-        end
-    end
+   // Synchronizers to prevent metastability
+   // Convention: sync[0] = newest sample, sync[1] = one clock older
+   reg [1:0] scl_sync, sda_sync;
+   always @(posedge clk) begin
+      scl_sync <= {scl_sync[0], scl};
+      sda_sync <= {sda_sync[0], sda_in};
+   end
 
-    // DIGIT COUNTER: counts 0 to 9
-    reg [3:0] current_digit;
+   // scl_sync[0] = current (new), scl_sync[1] = previous (old)
+   // Rising edge:  old=0, new=1  → 2'b01
+   // Falling edge: old=1, new=0  → 2'b10
+   wire scl_rise = (scl_sync == 2'b01); // FIX: was 2'b10
+   wire scl_fall = (scl_sync == 2'b10); // FIX: was 2'b01
+   wire scl_high = scl_sync[0];
 
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            current_digit <= 0;
-        end else if (start_pause_btn && one_second_pulse) begin
-            if (current_digit == 9) begin
-                current_digit <= 0;
-            end else begin
-                current_digit <= current_digit + 1;
-            end
-        end
-    end
+   // Start/Stop detection
+   // START: SDA falls (1→0) while SCL is high
+   wire start_bit = (scl_high && !sda_sync[0] &&  sda_sync[1]);
+   // STOP:  SDA rises (0→1) while SCL is high
+   wire stop_bit  = (scl_high &&  sda_sync[0] && !sda_sync[1]);
 
-    // 7-SEGMENT DECODER: translates to LEDs
-    reg [6:0] decoded_leds;
-    assign led_segments = decoded_leds;
+   reg [2:0] state, next_state;
+   reg [3:0] bit_count;
+   reg [7:0] shift_reg;
+   reg [7:0] reg_addr;
 
-    always @(*) begin
-        case (current_digit)
-            4'd0: decoded_leds = 7'b0111111;
-            4'd1: decoded_leds = 7'b0000110;
-            4'd2: decoded_leds = 7'b1011011;
-            4'd3: decoded_leds = 7'b1001111;
-            4'd4: decoded_leds = 7'b1100110;
-            4'd5: decoded_leds = 7'b1101101;
-            4'd6: decoded_leds = 7'b1111101;
-            4'd7: decoded_leds = 7'b0000111;
-            4'd8: decoded_leds = 7'b1111111;
-            4'd9: decoded_leds = 7'b1101111;
-            default: decoded_leds = 7'b0000000;
-        endcase
-    end
+   // Sample SDA on SCL rising edge: use sda_sync[0] (the stable current value)
+   wire [7:0] next_byte = {shift_reg[6:0], sda_sync[0]}; // FIX: was sda_sync[1]
+
+   // States
+   localparam IDLE = 0, ADDR = 1, GET_REG = 2, WRITE_VAL = 3, ACK = 4;
+
+   always @(posedge clk or negedge rst_n) begin
+      if (!rst_n) begin
+         state      <= IDLE;
+         duty_cycle <= 8'h80;
+         prescaler  <= 8'h00;
+         sda_out    <= 1'b1;
+         bit_count  <= 0;
+         shift_reg  <= 0;
+         reg_addr   <= 0;
+         next_state <= IDLE;
+
+      end else begin
+         sda_out <= 1'b1; // Default: release SDA
+
+         case (state)
+
+           IDLE: begin
+              bit_count <= 0;
+              if (start_bit) begin
+                 state     <= ADDR;
+                 shift_reg <= 0;
+              end
+           end
+
+           ADDR: begin
+              if (scl_rise) begin
+                 shift_reg <= next_byte;
+
+                 if (bit_count == 7) begin
+                    bit_count <= 0;
+                    if (next_byte[7:1] == 7'h3C && next_byte[0] == 1'b0) begin
+                       next_state <= GET_REG;
+                       state      <= ACK;
+                    end else begin
+                       state <= IDLE;
+                    end
+                 end else begin
+                    bit_count <= bit_count + 1;
+                 end
+              end
+           end
+
+           GET_REG: begin
+              if (scl_rise) begin
+                 shift_reg <= next_byte;
+
+                 if (bit_count == 7) begin
+                    reg_addr   <= next_byte;
+                    bit_count  <= 0;
+                    next_state <= WRITE_VAL;
+                    state      <= ACK;
+                 end else begin
+                    bit_count <= bit_count + 1;
+                 end
+              end
+           end
+
+           WRITE_VAL: begin
+              if (scl_rise) begin
+                 shift_reg <= next_byte;
+
+                 if (bit_count == 7) begin
+                    bit_count <= 0;
+                    if (reg_addr == 8'h00)
+                      duty_cycle <= next_byte;
+                    else if (reg_addr == 8'h01)
+                      prescaler <= next_byte;
+                    next_state <= IDLE;
+                    state      <= ACK;
+                 end else begin
+                    bit_count <= bit_count + 1;
+                 end
+              end
+           end
+
+           ACK: begin
+              sda_out <= 1'b0;
+              if (scl_fall) begin
+                 sda_out <= 1'b1;
+                 state   <= next_state;
+              end
+           end
+
+         endcase
+      end
+   end
+
+   // PWM counter with prescaler
+   always @(posedge clk or negedge rst_n) begin
+      if (!rst_n) begin
+         p_cnt   <= 0;
+         pwm_cnt <= 0;
+      end else begin
+         if (p_cnt >= prescaler) begin
+            p_cnt   <= 0;
+            pwm_cnt <= pwm_cnt + 1;
+         end else begin
+            p_cnt <= p_cnt + 1;
+         end
+      end
+   end
 
 endmodule
