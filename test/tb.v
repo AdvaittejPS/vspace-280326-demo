@@ -28,13 +28,7 @@ module tb ();
   always #5 clk = ~clk;
 
   // DUT instantiation
-  tt_um_traffic_smart
-`ifndef GL_TEST
-  #(
-    .CLOCKS_PER_SECOND(24'd9)
-  )
-`endif
-  uut (
+  tt_um_traffic_smart uut (
 
 `ifdef GL_TEST
     .VPWR(VPWR),
