@@ -30,4 +30,4 @@ async def test_traffic_controller(dut):
     dut.ui_in.value = 4
     await ClockCycles(dut.clk, 20)
 
-    assert Trues
+    assert True
