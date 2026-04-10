@@ -1,12 +1,17 @@
 module tt_um_traffic_smart (
-    input wire clk,
-    input wire rst_n,
-    input wire [7:0] ui_in,
-    output reg [7:0] uo_out
+    input  wire clk,
+    input  wire rst_n,
+    input  wire ena,        
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe
 );
 
     wire reset = ~rst_n;
-
+assign uio_out = 8'b0;
+assign uio_oe  = 8'b0;
     // Inputs
     wire pedestrian = ui_in[0];
     wire night_mode = ui_in[1];
@@ -36,10 +41,10 @@ module tt_um_traffic_smart (
     parameter EMERG   = 3'b100;
 
     always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            state <= RED;
-            timer <= 0;
-        end else if (tick) begin
+    if (reset) begin
+        state <= RED;
+        timer <= 0;
+    end else if (ena && tick) begin   
 
             // Emergency override
             if (emergency)
