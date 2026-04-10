@@ -3,7 +3,6 @@
 
 module tb ();
     initial begin
-        $display("Force dumping data now");
         $dumpfile("tb.fst");
         $dumpvars(0, tb);
         #1;
@@ -41,5 +40,38 @@ module tb ();
         .clk     (clk),
         .rst_n   (rst_n)
     );
+
+    always #5 clk = ~clk;
+
+    initial begin
+        clk    = 0;
+        rst_n  = 0;
+        ena    = 1;
+        ui_in  = 8'b0;
+        uio_in = 8'b0;
+
+        // Reset
+        repeat(5) @(posedge clk);
+        rst_n = 1;
+
+        // Start PUF measurement
+        @(posedge clk);
+        ui_in[0] = 1;
+        @(posedge clk);
+        ui_in[0] = 0;
+
+        // Wait for measurement to complete (255 cycles + margin)
+        repeat(300) @(posedge clk);
+
+        // Check output is either 0xAA or 0x55
+        if (uo_out == 8'hAA || uo_out == 8'h55) begin
+            $display("PASS: PUF response = %h", uo_out);
+        end else begin
+            $display("FAIL: unexpected output = %h", uo_out);
+            $fatal;
+        end
+
+        $finish;
+    end
 
 endmodule
