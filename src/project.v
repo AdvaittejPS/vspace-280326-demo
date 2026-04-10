@@ -1,5 +1,4 @@
 `default_nettype none
-/* verilator lint_off UNUSEDSIGNAL */
 
 module tt_um_saanvi_ro_puf (
     input  wire [7:0] ui_in,
@@ -14,17 +13,15 @@ module tt_um_saanvi_ro_puf (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    reg [7:0] lfsr;
-    wire feedback = lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3];
+    reg [7:0] counter;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
-            lfsr <= (ui_in == 8'h00) ? 8'hA5 : ui_in;
-        else
-            lfsr <= {lfsr[6:0], feedback};
+            counter <= 8'h00;
+        else if (ena)
+            counter <= counter + 1;
     end
 
-    assign uo_out = lfsr;
+    assign uo_out = counter;
 
 endmodule
-/* verilator lint_on UNUSEDSIGNAL */
