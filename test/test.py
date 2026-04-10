@@ -14,11 +14,11 @@ async def test_traffic_controller(dut):
     await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
 
-    # Let it run normally
+    # Normal operation
     for _ in range(50):
         await ClockCycles(dut.clk, 10)
 
-    # Pedestrian mode
+    # Pedestrian
     dut.ui_in.value = 1
     await ClockCycles(dut.clk, 20)
 
@@ -26,9 +26,8 @@ async def test_traffic_controller(dut):
     dut.ui_in.value = 2
     await ClockCycles(dut.clk, 20)
 
-    # Emergency mode
+    # Emergency
     dut.ui_in.value = 4
     await ClockCycles(dut.clk, 20)
 
-    # If no crash → pass
-    assert True
+    assert Trues
