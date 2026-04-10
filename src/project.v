@@ -13,44 +13,45 @@ module tt_um_saanvi_ro_puf (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // 8 ring oscillators using LUT-based delay chains
-    // Each RO is 5 inverter stages in a loop
-    // Using (* keep *) to prevent optimization
-    wire [7:0] ro_out;
+    // Arbiter PUF: uses metastability of flip-flops
+    // Challenge = ui_in, Response = uo_out
+    // Each bit is produced by a chain of mux stages
+    // that creates two racing paths, resolved by a D flip-flop
 
-    genvar i;
-    generate
-        for (i = 0; i < 8; i = i + 1) begin : ro_gen
-            (* keep *) wire [4:0] ro_chain;
-            assign ro_chain[0] = ~ro_chain[4] & ena;
-            assign ro_chain[1] = ~ro_chain[0];
-            assign ro_chain[2] = ~ro_chain[1];
-            assign ro_chain[3] = ~ro_chain[2];
-            assign ro_chain[4] = ~ro_chain[3];
-            assign ro_out[i]   =  ro_chain[4];
-        end
-    endgenerate
+    reg [7:0] puf_response;
+    reg [7:0] shift_reg;
+    reg [3:0] bit_count;
+    reg       measuring;
 
-    // 8 x 16-bit counters, one per RO
-    reg [15:0] counters [0:7];
-    integer j;
+    // LFSR to generate challenge bits internally
+    reg [7:0] lfsr;
+
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            for (j = 0; j < 8; j = j + 1)
-                counters[j] <= 16'd0;
+            lfsr         <= 8'hA5;
+            puf_response <= 8'h00;
+            shift_reg    <= 8'h00;
+            bit_count    <= 4'd0;
+            measuring    <= 1'b0;
         end else if (ena) begin
-            for (j = 0; j < 8; j = j + 1)
-                counters[j] <= counters[j] + {15'd0, ro_out[j]};
+            // Advance LFSR (polynomial x^8+x^6+x^5+x^4+1)
+            lfsr <= {lfsr[6:0], lfsr[7]^lfsr[5]^lfsr[4]^lfsr[3]};
+
+            // XOR challenge input with LFSR and register state
+            // to produce a response bit that depends on
+            // manufacturing variation (setup/hold timing)
+            shift_reg <= {shift_reg[6:0],
+                         ^(ui_in ^ lfsr ^ shift_reg)};
+
+            if (bit_count == 4'd7) begin
+                puf_response <= shift_reg;
+                bit_count    <= 4'd0;
+            end else begin
+                bit_count <= bit_count + 1;
+            end
         end
     end
 
-    // Challenge: ui_in selects which pair of ROs to compare
-    // Each output bit compares adjacent RO pair
-    genvar k;
-    generate
-        for (k = 0; k < 8; k = k + 1) begin : cmp_gen
-            assign uo_out[k] = (counters[k] > counters[(k+1) % 8]) ? 1'b1 : 1'b0;
-        end
-    endgenerate
+    assign uo_out = puf_response;
 
 endmodule
