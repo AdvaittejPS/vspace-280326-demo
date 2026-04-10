@@ -1,5 +1,8 @@
 `default_nettype none
 
+/* verilator lint_off UNUSEDSIGNAL */
+/* verilator lint_off UNOPTFLAT */
+
 module tt_um_saanvi_ro_puf (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -21,7 +24,6 @@ module tt_um_saanvi_ro_puf (
     reg       measuring;
     reg [7:0] response_reg;
 
-    // Ring oscillator outputs (process variation = PUF fingerprint)
     wire ro_a, ro_b;
     ro_cell roa (.out(ro_a));
     ro_cell rob (.out(ro_b));
@@ -57,3 +59,6 @@ endmodule
     assign w0 = ~w4;
     assign out = w0;
 endmodule
+
+/* verilator lint_on UNUSEDSIGNAL */
+/* verilator lint_on UNOPTFLAT */
