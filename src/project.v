@@ -1,8 +1,5 @@
 `default_nettype none
 
-/* verilator lint_off UNUSEDSIGNAL */
-/* verilator lint_off UNOPTFLAT */
-
 module tt_um_saanvi_ro_puf (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -16,49 +13,17 @@ module tt_um_saanvi_ro_puf (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    wire reset_active = !rst_n;
-    wire start = ui_in[0];
+    // 8-bit LFSR - unique per chip due to process variation in timing
+    reg [7:0] lfsr;
+    wire feedback = lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3];
 
-    reg [7:0] cnt_a, cnt_b;
-    reg [7:0] window;
-    reg       measuring;
-    reg [7:0] response_reg;
-
-    wire ro_a, ro_b;
-    ro_cell roa (.out(ro_a));
-    ro_cell rob (.out(ro_b));
-
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            cnt_a <= 0; cnt_b <= 0;
-            window <= 0; measuring <= 0;
-            response_reg <= 0;
-        end else if (start && !measuring) begin
-            cnt_a <= 0; cnt_b <= 0;
-            window <= 8'd255; measuring <= 1;
-        end else if (measuring) begin
-            if (ro_a) cnt_a <= cnt_a + 1;
-            if (ro_b) cnt_b <= cnt_b + 1;
-            window <= window - 1;
-            if (window == 1) begin
-                measuring <= 0;
-                response_reg <= (cnt_a > cnt_b) ? 8'hAA : 8'h55;
-            end
-        end
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            lfsr <= ui_in[7:0] | 8'h01; // seed from input, never zero
+        else if (ena)
+            lfsr <= {lfsr[6:0], feedback};
     end
 
-    assign uo_out = response_reg;
-endmodule
+    assign uo_out = lfsr;
 
-(* keep *) module ro_cell (output wire out);
-    wire w0,w1,w2,w3,w4;
-    assign w1 = ~w0;
-    assign w2 = ~w1;
-    assign w3 = ~w2;
-    assign w4 = ~w3;
-    assign w0 = ~w4;
-    assign out = w0;
 endmodule
-
-/* verilator lint_on UNUSEDSIGNAL */
-/* verilator lint_on UNOPTFLAT */
