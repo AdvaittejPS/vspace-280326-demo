@@ -1,86 +1,99 @@
+/*
+ * Sound-to-Light Rhythm Visualizer with Spike Filter
+ * Tiny Tapeout compatible design
+ *
+ * Inputs  (ui_in[7:0]):
+ *   ui_in[5:0]  - 6-bit audio level from envelope comparator
+ *   ui_in[6]    - bypass spike filter (1 = raw, 0 = filtered)
+ *   ui_in[7]    - unused
+ *
+ * Outputs (uo_out[7:0]):
+ *   uo_out[5:0] - 6 LED outputs (bar graph)
+ *   uo_out[7:6] - always 0
+ *
+ * Pipeline: inputs are registered each clock; output is combinational
+ * from the registered values. So uo_out reflects ui_in from the
+ * PREVIOUS clock cycle.
+ *
+ * Gate budget: ~700-900 gates
+ */
+
 `default_nettype none
 
-module tt_um_advaittej_stopwatch #(
-    parameter CLOCKS_PER_SECOND = 24'd9_999_999
-)(
-    // DO NOT CHANGE THESE NAMES!!
-    // The factory tools require these exact port definitions
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+module tt_um_sound_to_light (
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire       ena,
+    input  wire       clk,
+    input  wire       rst_n
 );
 
-    // Intuitive aliasing ie translating TT to readable names
-    assign uio_out = 8'b0; // Tie off unused pins to prevent errors
+    // -------------------------------------------------------------------------
+    // Tie off unused ports
+    // -------------------------------------------------------------------------
+    assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Inverting active-low reset so 1 means reset now for our logic
-    wire reset_active = !rst_n;       
-    
-    // Pin 0 of input block is button
-    wire start_pause_btn = ui_in[0];  
-    
-    // Internal wire for 7-segment data
-    wire [6:0] led_segments;          
+    // -------------------------------------------------------------------------
+    // Registered inputs — latch ui_in on every rising edge
+    // -------------------------------------------------------------------------
+    reg [5:0] reg_level;    // registered audio level (current sample, T)
+    reg       reg_bypass;   // registered bypass flag
 
-    // Drive physical output pins with our internal data
-    assign uo_out[6:0] = led_segments; 
-    assign uo_out[7]   = 1'b0; // Decimal point off
+    // Shift register: stores previous samples
+    reg [5:0] sample_r1;    // T-1 (one cycle ago)
+    reg [5:0] sample_r2;    // T-2
 
-    // CLOCK DIVIDER
-    reg [23:0] clock_counter;
-    wire one_second_pulse = (clock_counter == CLOCKS_PER_SECOND);
-
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            clock_counter <= 0;
-        end else if (start_pause_btn) begin
-            if (one_second_pulse) begin
-                clock_counter <= 0;
-            end else begin
-                clock_counter <= clock_counter + 1;
-            end
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            reg_level  <= 6'd0;
+            reg_bypass <= 1'b0;
+            sample_r1  <= 6'd0;
+            sample_r2  <= 6'd0;
+        end else if (ena) begin
+            reg_level  <= ui_in[5:0];
+            reg_bypass <= ui_in[6];
+            sample_r1  <= reg_level;   // reg_level becomes T-1
+            sample_r2  <= sample_r1;   // sample_r1 becomes T-2
         end
     end
 
-    // DIGIT COUNTER: counts 0 to 9
-    reg [3:0] current_digit;
+    // -------------------------------------------------------------------------
+    // Spike detector (combinational from registered values)
+    // Spike = |reg_level - sample_r1| > SPIKE_THRESH
+    // Uses unsigned comparison to avoid subtraction overflow
+    // -------------------------------------------------------------------------
+    localparam [6:0] SPIKE_THRESH = 7'd16;
 
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            current_digit <= 0;
-        end else if (start_pause_btn && one_second_pulse) begin
-            if (current_digit == 9) begin
-                current_digit <= 0;
-            end else begin
-                current_digit <= current_digit + 1;
-            end
-        end
-    end
+    // Widen to 7 bits before adding to prevent 6-bit overflow
+    wire spike_up   = ({1'b0, reg_level} > {1'b0, sample_r1} + SPIKE_THRESH);
+    wire spike_down = ({1'b0, sample_r1} > {1'b0, reg_level} + SPIKE_THRESH);
+    wire is_spike   = spike_up | spike_down;
 
-    // 7-SEGMENT DECODER: translates to LEDs
-    reg [6:0] decoded_leds;
-    assign led_segments = decoded_leds;
+    // -------------------------------------------------------------------------
+    // Filtered output: if spike detected, hold previous sample (sample_r1)
+    // -------------------------------------------------------------------------
+    wire [5:0] filtered_level = is_spike ? sample_r1 : reg_level;
 
-    always @(*) begin
-        case (current_digit)
-            4'd0: decoded_leds = 7'b0111111;
-            4'd1: decoded_leds = 7'b0000110;
-            4'd2: decoded_leds = 7'b1011011;
-            4'd3: decoded_leds = 7'b1001111;
-            4'd4: decoded_leds = 7'b1100110;
-            4'd5: decoded_leds = 7'b1101101;
-            4'd6: decoded_leds = 7'b1111101;
-            4'd7: decoded_leds = 7'b0000111;
-            4'd8: decoded_leds = 7'b1111111;
-            4'd9: decoded_leds = 7'b1101111;
-            default: decoded_leds = 7'b0000000;
-        endcase
-    end
+    // -------------------------------------------------------------------------
+    // Bypass MUX
+    // -------------------------------------------------------------------------
+    wire [5:0] display_level = reg_bypass ? reg_level : filtered_level;
+
+    // -------------------------------------------------------------------------
+    // Level-to-LED mapper (thermometer bar graph, 6 LEDs)
+    // Thresholds divide 0-63 into 6 bands
+    // -------------------------------------------------------------------------
+    wire led0 = (display_level >= 6'd1 );
+    wire led1 = (display_level >= 6'd11);
+    wire led2 = (display_level >= 6'd21);
+    wire led3 = (display_level >= 6'd32);
+    wire led4 = (display_level >= 6'd42);
+    wire led5 = (display_level >= 6'd52);
+
+    assign uo_out = {2'b00, led5, led4, led3, led2, led1, led0};
 
 endmodule
