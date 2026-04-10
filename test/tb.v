@@ -46,18 +46,13 @@ module tb ();
   );
 
   // Basic stimulus
-  initial begin
+ initial begin
     rst_n = 0;
     ena = 1;
     ui_in = 0;
     uio_in = 0;
 
     #20 rst_n = 1;
-
-    // Run some cycles
-    #500;
-
-    $finish;
-  end
+end
 
 endmodule
