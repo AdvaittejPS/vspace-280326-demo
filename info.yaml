@@ -1,26 +1,18 @@
 # Tiny Tapeout project information
 project:
-  title:        "V-SPACE Demo Hardware Stopwatch"
-  author:       "Advaittej"
-  discord:      "" 
-  description:  "1-second interval stopwatch with start/pause toggled via input switch."
-  language:     "Verilog" 
-  clock_hz:     10000000 
-
-  # How many tiles your design occupies?
-  tiles: "1x1" 
-
-  # Your top module name must start with "tt_um_". 
-  top_module:  "tt_um_advaittej_stopwatch"
-
-  # List your project's source files here.
+  title:        "Ring Oscillator PUF"
+  author:       "Saanvi Garg"
+  discord:      ""
+  description:  "A Physical Unclonable Function using ring oscillators. Exploits Sky130 process variation to generate a unique chip fingerprint for hardware security."
+  language:     "Verilog"
+  clock_hz:     10000000
+  tiles: "1x1"
+  top_module:  "tt_um_saanvi_ro_puf"
   source_files:
     - "project.v"
 
-# The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 pinout:
-  # Inputs
-  ui[0]: "Start / Pause Button"
+  ui[0]: "Start measurement"
   ui[1]: ""
   ui[2]: ""
   ui[3]: ""
@@ -28,18 +20,14 @@ pinout:
   ui[5]: ""
   ui[6]: ""
   ui[7]: ""
-
-  # Outputs
-  uo[0]: "Segment A"
-  uo[1]: "Segment B"
-  uo[2]: "Segment C"
-  uo[3]: "Segment D"
-  uo[4]: "Segment E"
-  uo[5]: "Segment F"
-  uo[6]: "Segment G"
-  uo[7]: "Tied Low"
-
-  # Bidirectional pins
+  uo[0]: "PUF response bit 0"
+  uo[1]: "PUF response bit 1"
+  uo[2]: "PUF response bit 2"
+  uo[3]: "PUF response bit 3"
+  uo[4]: "PUF response bit 4"
+  uo[5]: "PUF response bit 5"
+  uo[6]: "PUF response bit 6"
+  uo[7]: "PUF response bit 7"
   uio[0]: ""
   uio[1]: ""
   uio[2]: ""
