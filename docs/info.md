@@ -1,45 +1,29 @@
-<!---
-
-This file is used to generate your project datasheet. Please fill in the information below and delete any unused
-sections.
-
-You can also include images in this folder and reference them in the markdown. Each image must be less than
-512 kb in size, and the combined size of all images must be less than 1 MB.
--->
-
 ## How it works
-The V-SPACE Demo Hardware Stopwatch is a 1-second interval counter that displays digits from 0 to 9 on a standard 7-segment display. The design is broken down into three main hardware modules:
+The Carry-Chain Logic Lock is a hardware security primitive designed to protect chip functionality through timing-based obfuscation. 
 
-+ The Clock Divider: The Tiny Tapeout board provides a default 10 MHz clock. Our Verilog code uses a 24-bit register to count exactly 9,999,999 clock cycles, generating a single 1 Hz pulse (one pulse per second).
+![Logic Diagram](logic_diagram.png)
 
-+ The Digit Counter (BCD): Every time the 1 Hz pulse triggers, a 4-bit register increments. Once the counter reaches 9, it automatically wraps back around to 0.
+The design is broken down into three main hardware modules:
 
-+ The 7-Segment Decoder: Pure combinational logic continuously reads the 4-bit counter and outputs the correct 7-bit binary pattern to light up the corresponding segments (A through G) on an LED display.
++ **The Authorization Register (SIPO):** A 16-bit Serial-In Parallel-Out shift register. It uses a rising-edge detector on the `key_shift` input to synchronously sample the `key_data` bitstream.
 
-The counting sequence is controlled by a hardware enable switch connected to ui_in[0]. When the switch is HIGH, the clock divider runs and the counter increments. When the switch is LOW, the clock divider pauses, freezing the current number on the display.
++ **The Identity Comparator:** A 16-bit combinational equality block that continuously compares the current shift register value against a hardcoded Master Key (`16'hA5C3`). 
+
++ **The Obfuscated Counter Stage:** A 24-bit counter split into an 8-bit time-base and a 16-bit functional stage. An XOR gate intercepts the carry signal between these stages.
+    - **Locked (Default/Incorrect Key):** The carry is inverted, forcing the functional stage to increment at an accelerated rate, resulting in a high-speed scrambled output.
+    - **Unlocked:** The XOR gate becomes transparent, and the 16-bit stage increments normally to produce a stable 1 Hz pulse.
+
+### Transient Behavior & Security
+The output behavior is dynamic but remains corrupted until the authorization is complete. As bits are shifted in, the internal state changes, but the `blinker_output` will continue to flicker at high frequency as long as the register does not match the master key. This prevents side-channel analysis of partial key matches.
 
 ## How to test
-
-To physically test this chip once manufactured (or when using the Tiny Tapeout Commander app):
-
-+ Power & Clock: Ensure the Tiny Tapeout board is powered and the system clock is set to 10 MHz.
-
-+ Reset: Press the system reset button (pulling rst_n LOW) to clear all internal registers. The 7-segment display should show 0.
-
-+ Start Counting: Flip Input Switch 0 (ui_in[0]) to the HIGH (ON) position. The display will begin ticking up by one every second.
-
-+ Pause Counting: Flip Input Switch 0 to the LOW (OFF) position. The display will freeze on the current digit.
-
-+ Resume: Flip Input Switch 0 back HIGH to resume counting from the paused digit.
-
-+ Hard Reset: At any time, pressing the reset button will immediately force the counter back to 0.
++ **Reset:** Press the system reset button (`rst_n` LOW). The `unlocked_led` (uo[0]) should be OFF, and `uo[1]` should show a high-frequency flicker.
++ **Key Entry:** Provide the 16-bit bitstream for `0xA5C3` on `ui[0]`. For each bit, pulse `key_shift` (`ui[1]`) HIGH.
++ **Verification:** Once the 16th correct bit is clocked in, `uo[0]` will turn HIGH, and `uo[1]` will immediately transition to a 1 Hz blink.
++ **Tamper Test:** Shifting in a single incorrect bit after unlocking will immediately re-lock the device and resume high-frequency obfuscation.
 
 ## External hardware
++ **Tiny Tapeout Demo Board.**
++ **Logic Analyzer/Oscilloscope:** To observe the frequency shift on `uo_out[1]`. We can also observe an LED blink for quick testing
++ **Microcontroller:** To automate the 16-bit serial key entry via `ui_in[0]` and `ui_in[1]`.
 
-To view the output of this project, you will need:
-
-+ Tiny Tapeout Demo Board (or equivalent carrier board).
-
-+ 7-Segment Display PMOD connected to the dedicated output pins (uo_out[0:7]).
-
-+ A simple DIP switch or push-button connected to input pin 0 (ui_in[0]) to act as the Start/Pause toggle.

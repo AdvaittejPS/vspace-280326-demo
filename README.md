@@ -1,47 +1,29 @@
-![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
+# Carry Chain Logic Locking
 
-# V-SPACE Demo Hardware Stopwatch
+## Authors: Jonathan Gerard and Tanmay Deshmukh
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/AdvaittejPS/vspace-280326-demo/blob/main/workshop/V_SPACE_demo_280326_notebook.ipynb)
+## Project Description
+This project implements a Hardware Security Primitive designed to protect Intellectual Property (IP) through timing-based obfuscation. The design features a 16-bit synchronous logic lock that controls a 24-bit counter.
 
-**Welcome to the V-SPACE Bootcamp!** Click the badge above to launch the interactive chip design environment directly in your browser.
+This design employs **Carry-Chain Poisoning**. If an incorrect key is provided, the counter's carry logic is XORed, causing the output frequency to shift to an unstable high-frequency state. This renders the functional stage useless to an unauthorized user while appearing to remain active.
 
----
-- [Read the documentation for project](docs/info.md)
+## Logic Diagram
+![Logic Diagram](docs/logic_diagram.png)
 
-## What is Tiny Tapeout?
+## How it Works
+1. **Key Loading:** The system accepts a 16-bit serial key via `key_data` (ui[0]) synchronized by rising edges on `key_shift` (ui[1]).
+2. **Comparison:** The internal shift register is compared against a hardcoded Master Key: `16'hA5C3`.
+3. **Obfuscation States:**
+   * **Unlocked:** `is_locked` drops to 0. The XOR gate becomes transparent, allowing the 1Hz blink to resume on `uo[1]`.
+   * **Locked (Default):** `is_locked` remains 1. The carry signal is inverted via the XOR gate, forcing the functional counter to increment on nearly every clock cycle, creating a high-speed flicker.
 
-Tiny Tapeout is an educational project that aims to make it easier and cheaper than ever to get your digital and analog designs manufactured on a real chip.
+## Transient Behavior during Key Entry
+The device remains in a "Locked" state throughout the entire loading process. Because the 16-bit internal state is updated bit-by-bit, any state that does not exactly match `16'hA5C3` keeps the carry-chain poisoned. This ensures that the output remains scrambled and provides no "partial-match" feedback to an attacker while they are entering a key.
 
-To learn more and get started, visit https://tinytapeout.com.
-
-## Set up your Verilog project
-
-1. Add your Verilog files to the `src` folder.
-2. Edit the [info.yaml](info.yaml) and update information about your project, paying special attention to the `source_files` and `top_module` properties. If you are upgrading an existing Tiny Tapeout project, check out our [online info.yaml migration tool](https://tinytapeout.github.io/tt-yaml-upgrade-tool/).
-3. Edit [docs/info.md](docs/info.md) and add a description of your project.
-4. Adapt the testbench to your design. See [test/README.md](test/README.md) for more information.
-
-The GitHub action will automatically build the ASIC files using [LibreLane](https://www.zerotoasiccourse.com/terminology/librelane/).
-
-## Enable GitHub actions to build the results page
-
-- [Enabling GitHub Pages](https://tinytapeout.com/faq/#my-github-action-is-failing-on-the-pages-part)
-
-## Resources
-
-- [FAQ](https://tinytapeout.com/faq/)
-- [Digital design lessons](https://tinytapeout.com/digital_design/)
-- [Learn how semiconductors work](https://tinytapeout.com/siliwiz/)
-- [Join the community](https://tinytapeout.com/discord)
-- [Build your design locally](https://www.tinytapeout.com/guides/local-hardening/)
-
-## What next?
-
-- [Submit your design to the next shuttle](https://app.tinytapeout.com/).
-- Edit [this README](README.md) and explain your design, how it works, and how to test it.
-- Share your project on your social network of choice:
-  - LinkedIn [#tinytapeout](https://www.linkedin.com/search/results/content/?keywords=%23tinytapeout) [@TinyTapeout](https://www.linkedin.com/company/100708654/)
-  - Mastodon [#tinytapeout](https://chaos.social/tags/tinytapeout) [@matthewvenn](https://chaos.social/@matthewvenn)
-  - X (formerly Twitter) [#tinytapeout](https://twitter.com/hashtag/tinytapeout) [@tinytapeout](https://twitter.com/tinytapeout)
-  - Bluesky [@tinytapeout.com](https://bsky.app/profile/tinytapeout.com)
+## Pinout Mapping
+| Pin | Name | Description |
+| :--- | :--- | :--- |
+| ui[0] | key_data | Serial data bit for the 16-bit key. |
+| ui[1] | key_shift | Trigger to shift in the data bit. |
+| uo[0] | unlocked_led | High when the correct key is loaded. |
+| uo[1] | blinker_output | Functional 1Hz blink (Unlocked) / High-freq noise (Locked). |

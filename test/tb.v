@@ -3,15 +3,14 @@
 
 module tb ();
 
-  // Dump the signals to a FST file.
   initial begin
-    $display("Force dumping data now");
-    $dumpfile("tb.fst");
-    $dumpvars(0, tb);
-    #1; // The template includes this 1ns delay to ensure simulator stability
+    $display("Starting Logic Lock Simulation...");
+    $dumpfile("tb.vcd");         // Added: Sets dump file name to VCD
+    $dumpvars(0, tb);            // Added: Dumps all signals in the 'tb' hierarchy
+    #1; 
   end
 
-  // Wire up the inputs and outputs:
+  // Standard Tiny Tapeout Signals
   reg clk;
   reg rst_n;
   reg ena;
@@ -21,35 +20,17 @@ module tb ();
   wire [7:0] uio_out;
   wire [7:0] uio_oe;
 
-  // Template's way of defining power wires for Gate Level simulation
-`ifdef GL_TEST
-  wire VPWR = 1'b1;
-  wire VGND = 1'b0;
-`endif
-
-// Instantiate OUR module. Hide the parameter during Gate Level tests.
-    tt_um_advaittej_stopwatch 
-`ifndef GL_TEST
-    #(
-        .CLOCKS_PER_SECOND(24'd9) // 10 clocks = 1 second for fast testing
-    )
-`endif
-    user_project (
-        
-        // Include power ports for the Gate Level test:
-`ifdef GL_TEST
-        .VPWR(VPWR),
-        .VGND(VGND),
-`endif
-
-        .ui_in  (ui_in),    // Dedicated inputs
-        .uo_out (uo_out),   // Dedicated outputs
-        .uio_in (uio_in),   // IOs: Input path
-        .uio_out(uio_out),  // IOs: Output path
-        .uio_oe (uio_oe),   // IOs: Enable path (active high: 0=input, 1=output)
-        .ena    (ena),      // enable - goes high when design is selected
-        .clk    (clk),      // clock
-        .rst_n  (rst_n)     // not reset
+  // Instantiate the Logic Lock Module [cite: 5, 13]
+  tt_um_logic_lock user_project (
+        .ui_in  (ui_in),    
+        .uo_out (uo_out),   
+        .uio_in (uio_in),   
+        .uio_out(uio_out),  
+        .uio_oe (uio_oe),   
+        .ena    (ena),      
+        .clk    (clk),      
+        .rst_n  (rst_n)     
     );
 
 endmodule
+

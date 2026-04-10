@@ -1,86 +1,81 @@
 `default_nettype none
 
-module tt_um_advaittej_stopwatch #(
-    parameter CLOCKS_PER_SECOND = 24'd9_999_999
-)(
-    // DO NOT CHANGE THESE NAMES!!
-    // The factory tools require these exact port definitions
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+module tt_um_jonathan_tanmay_logic_lock (
+    input  wire [7:0] ui_in,    // [0]: key_data, [1]: key_shift
+    output wire [7:0] uo_out,   // [0]: unlocked_led, [1]: blinker
+    input  wire [7:0] uio_in,   
+    output wire [7:0] uio_out,  
+    output wire [7:0] uio_oe,   
+    input  wire       ena,      
+    input  wire       clk,      
+    input  wire       rst_n     
 );
 
-    // Intuitive aliasing ie translating TT to readable names
-    assign uio_out = 8'b0; // Tie off unused pins to prevent errors
-    assign uio_oe  = 8'b0;
+    // --- I/O ASSIGNMENTS ---
+    wire key_data;
+    wire key_shift;
+    assign key_data  = ui_in[0];
+    assign key_shift = ui_in[1];
+    assign uio_oe = 8'b0;
+    assign uio_out = 8'b0;
 
-    // Inverting active-low reset so 1 means reset now for our logic
-    wire reset_active = !rst_n;       
-    
-    // Pin 0 of input block is button
-    wire start_pause_btn = ui_in[0];  
-    
-    // Internal wire for 7-segment data
-    wire [6:0] led_segments;          
+    // --- SYNCHRONOUS KEY LOADING ---
+    parameter [15:0] MASTER_KEY = 16'hA5C3; 
+    reg [15:0] shift_reg;
+    reg last_shift_state;
 
-    // Drive physical output pins with our internal data
-    assign uo_out[6:0] = led_segments; 
-    assign uo_out[7]   = 1'b0; // Decimal point off
-
-    // CLOCK DIVIDER
-    reg [23:0] clock_counter;
-    wire one_second_pulse = (clock_counter == CLOCKS_PER_SECOND);
-
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            clock_counter <= 0;
-        end else if (start_pause_btn) begin
-            if (one_second_pulse) begin
-                clock_counter <= 0;
-            end else begin
-                clock_counter <= clock_counter + 1;
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            shift_reg <= 16'h0000;
+            last_shift_state <= 1'b0;
+        end else if (ena) begin
+            last_shift_state <= key_shift;
+            // Rising edge detection
+            if (key_shift == 1'b1 && last_shift_state == 1'b0) begin
+                shift_reg <= {shift_reg[14:0], key_data};
             end
         end
     end
 
-    // DIGIT COUNTER: counts 0 to 9
-    reg [3:0] current_digit;
+    // Comparison Logic
+    wire is_locked;
+    assign is_locked = (shift_reg != MASTER_KEY);
+    
+    // Status Outputs
+    assign uo_out[0] = !is_locked; 
+    assign uo_out[2] = 1'b0;
+    assign uo_out[3] = 1'b0;
+    assign uo_out[4] = 1'b0;
+    assign uo_out[5] = 1'b0;
+    assign uo_out[6] = 1'b0;
+    assign uo_out[7] = 1'b0;
 
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            current_digit <= 0;
-        end else if (start_pause_btn && one_second_pulse) begin
-            if (current_digit == 9) begin
-                current_digit <= 0;
-            end else begin
-                current_digit <= current_digit + 1;
-            end
+    // --- OBFUSCATED 24-BIT COUNTER ---
+    reg [7:0]  lower_count;
+    reg [15:0] upper_count;
+    
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            lower_count <= 8'b0;
+        end else if (ena) begin
+            lower_count <= lower_count + 1'b1;
         end
     end
 
-    // 7-SEGMENT DECODER: translates to LEDs
-    reg [6:0] decoded_leds;
-    assign led_segments = decoded_leds;
+    wire standard_carry;
+    assign standard_carry = (lower_count == 8'hFF);
 
-    always @(*) begin
-        case (current_digit)
-            4'd0: decoded_leds = 7'b0111111;
-            4'd1: decoded_leds = 7'b0000110;
-            4'd2: decoded_leds = 7'b1011011;
-            4'd3: decoded_leds = 7'b1001111;
-            4'd4: decoded_leds = 7'b1100110;
-            4'd5: decoded_leds = 7'b1101101;
-            4'd6: decoded_leds = 7'b1111101;
-            4'd7: decoded_leds = 7'b0000111;
-            4'd8: decoded_leds = 7'b1111111;
-            4'd9: decoded_leds = 7'b1101111;
-            default: decoded_leds = 7'b0000000;
-        endcase
+    wire poisoned_carry;
+    assign poisoned_carry = standard_carry ^ is_locked;
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            upper_count <= 16'b0;
+        end else if (ena && poisoned_carry) begin
+            upper_count <= upper_count + 1'b1;
+        end
     end
+
+    assign uo_out[1] = upper_count[15];
 
 endmodule

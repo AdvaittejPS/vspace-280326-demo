@@ -1,27 +1,27 @@
 # Tiny Tapeout project information
 project:
-  title:        "V-SPACE Demo Hardware Stopwatch"
-  author:       "Advaittej"
+  title:        "Carry-Chain Logic Lock"
+  author:       "Jonathan Gerard and Tanmay Deshmukh"
   discord:      "" 
-  description:  "1-second interval stopwatch with start/pause toggled via input switch."
+  description:  "A timing-based hardware security primitive using XOR carry-poisoning."
   language:     "Verilog" 
   clock_hz:     10000000 
 
-  # How many tiles your design occupies?
+  # How many cells does this project take up?
   tiles: "1x1" 
 
-  # Your top module name must start with "tt_um_". 
-  top_module:  "tt_um_advaittej_stopwatch"
+  # Your top module name (must match project.v)
+  top_module:  "tt_um_jonathan_tanmay_logic_lock"
 
-  # List your project's source files here.
+  # List your source files here
   source_files:
     - "project.v"
 
-# The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
+# How the pins are mapped to inputs and outputs
 pinout:
   # Inputs
-  ui[0]: "Start / Pause Button"
-  ui[1]: ""
+  ui[0]: "key_data"
+  ui[1]: "key_shift"
   ui[2]: ""
   ui[3]: ""
   ui[4]: ""
@@ -30,6 +30,16 @@ pinout:
   ui[7]: ""
 
   # Outputs
+  uo[0]: "unlocked_led"
+  uo[1]: "blinker_output"
+  uo[2]: ""
+  uo[3]: ""
+  uo[4]: ""
+  uo[5]: ""
+  uo[6]: ""
+  uo[7]: ""
+
+  # Bidirectional pins 
   uo[0]: "Segment A"
   uo[1]: "Segment B"
   uo[2]: "Segment C"
@@ -49,5 +59,6 @@ pinout:
   uio[6]: ""
   uio[7]: ""
 
-# Do not change!
+# Do not change the version
 yaml_version: 6
+
