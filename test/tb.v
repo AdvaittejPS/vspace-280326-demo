@@ -1,10 +1,40 @@
-tt_um_traffic_smart
-`ifndef GL_TEST
-#(
-    .CLOCKS_PER_SECOND(24'd9)
-)
+`timescale 1ns / 1ps
+
+module tb ();
+
+  // Dump waves
+  initial begin
+    $dumpfile("tb.fst");
+    $dumpvars(0, tb);
+  end
+
+  // Signals
+  reg clk;
+  reg rst_n;
+  reg ena;
+  reg [7:0] ui_in;
+  reg [7:0] uio_in;
+  wire [7:0] uo_out;
+  wire [7:0] uio_out;
+  wire [7:0] uio_oe;
+
+`ifdef GL_TEST
+  wire VPWR = 1'b1;
+  wire VGND = 1'b0;
 `endif
-uut (
+
+  // Clock generation
+  initial clk = 0;
+  always #5 clk = ~clk;
+
+  // DUT instantiation
+  tt_um_traffic_smart
+`ifndef GL_TEST
+  #(
+    .CLOCKS_PER_SECOND(24'd9)
+  )
+`endif
+  uut (
 
 `ifdef GL_TEST
     .VPWR(VPWR),
@@ -19,4 +49,21 @@ uut (
     .ena    (ena),
     .clk    (clk),
     .rst_n  (rst_n)
-);
+  );
+
+  // Basic stimulus
+  initial begin
+    rst_n = 0;
+    ena = 1;
+    ui_in = 0;
+    uio_in = 0;
+
+    #20 rst_n = 1;
+
+    // Run some cycles
+    #500;
+
+    $finish;
+  end
+
+endmodule
