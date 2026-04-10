@@ -1,86 +1,59 @@
 `default_nettype none
 
-module tt_um_advaittej_stopwatch #(
-    parameter CLOCKS_PER_SECOND = 24'd9_999_999
-)(
-    // DO NOT CHANGE THESE NAMES!!
-    // The factory tools require these exact port definitions
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high: 0=input, 1=output)
-    input  wire       ena,      // always 1 when the design is powered
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+module tt_um_saanvi_ro_puf (
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire       ena,
+    input  wire       clk,
+    input  wire       rst_n
 );
-
-    // Intuitive aliasing ie translating TT to readable names
-    assign uio_out = 8'b0; // Tie off unused pins to prevent errors
+    assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Inverting active-low reset so 1 means reset now for our logic
-    wire reset_active = !rst_n;       
-    
-    // Pin 0 of input block is button
-    wire start_pause_btn = ui_in[0];  
-    
-    // Internal wire for 7-segment data
-    wire [6:0] led_segments;          
+    wire reset_active = !rst_n;
+    wire start = ui_in[0];
 
-    // Drive physical output pins with our internal data
-    assign uo_out[6:0] = led_segments; 
-    assign uo_out[7]   = 1'b0; // Decimal point off
+    reg [7:0] cnt_a, cnt_b;
+    reg [7:0] window;
+    reg       measuring;
+    reg [7:0] response_reg;
 
-    // CLOCK DIVIDER
-    reg [23:0] clock_counter;
-    wire one_second_pulse = (clock_counter == CLOCKS_PER_SECOND);
+    // Ring oscillator outputs (process variation = PUF fingerprint)
+    wire ro_a, ro_b;
+    ro_cell roa (.out(ro_a));
+    ro_cell rob (.out(ro_b));
 
     always @(posedge clk or posedge reset_active) begin
         if (reset_active) begin
-            clock_counter <= 0;
-        end else if (start_pause_btn) begin
-            if (one_second_pulse) begin
-                clock_counter <= 0;
-            end else begin
-                clock_counter <= clock_counter + 1;
+            cnt_a <= 0; cnt_b <= 0;
+            window <= 0; measuring <= 0;
+            response_reg <= 0;
+        end else if (start && !measuring) begin
+            cnt_a <= 0; cnt_b <= 0;
+            window <= 8'd255; measuring <= 1;
+        end else if (measuring) begin
+            if (ro_a) cnt_a <= cnt_a + 1;
+            if (ro_b) cnt_b <= cnt_b + 1;
+            window <= window - 1;
+            if (window == 1) begin
+                measuring <= 0;
+                response_reg <= (cnt_a > cnt_b) ? 8'hAA : 8'h55;
             end
         end
     end
 
-    // DIGIT COUNTER: counts 0 to 9
-    reg [3:0] current_digit;
+    assign uo_out = response_reg;
+endmodule
 
-    always @(posedge clk or posedge reset_active) begin
-        if (reset_active) begin
-            current_digit <= 0;
-        end else if (start_pause_btn && one_second_pulse) begin
-            if (current_digit == 9) begin
-                current_digit <= 0;
-            end else begin
-                current_digit <= current_digit + 1;
-            end
-        end
-    end
-
-    // 7-SEGMENT DECODER: translates to LEDs
-    reg [6:0] decoded_leds;
-    assign led_segments = decoded_leds;
-
-    always @(*) begin
-        case (current_digit)
-            4'd0: decoded_leds = 7'b0111111;
-            4'd1: decoded_leds = 7'b0000110;
-            4'd2: decoded_leds = 7'b1011011;
-            4'd3: decoded_leds = 7'b1001111;
-            4'd4: decoded_leds = 7'b1100110;
-            4'd5: decoded_leds = 7'b1101101;
-            4'd6: decoded_leds = 7'b1111101;
-            4'd7: decoded_leds = 7'b0000111;
-            4'd8: decoded_leds = 7'b1111111;
-            4'd9: decoded_leds = 7'b1101111;
-            default: decoded_leds = 7'b0000000;
-        endcase
-    end
-
+(* keep *) module ro_cell (output wire out);
+    wire w0,w1,w2,w3,w4;
+    assign w1 = ~w0;
+    assign w2 = ~w1;
+    assign w3 = ~w2;
+    assign w4 = ~w3;
+    assign w0 = ~w4;
+    assign out = w0;
 endmodule
